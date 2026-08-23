@@ -1,0 +1,96 @@
+{
+  "environment": {
+    "platform": "Linux-7.0.0-27-generic-x86_64-with-glibc2.43",
+    "python": "3.13.12 (main, Feb 12 2026, 00:45:41) [Clang 21.1.4 ]",
+    "polars": "1.43.0",
+    "polars_max_threads": 1,
+    "maxminddb_polars": "0.0.0",
+    "polars_maxminddb": "0.2.3",
+    "polars_iptools": "0.2.1",
+    "database_bytes": 33733040
+  },
+  "workload": "high",
+  "rows": 50000,
+  "unique_ips": 50000,
+  "validation": {
+    "country_outputs_equal": true,
+    "fully_populated_three_field_outputs_equal": true,
+    "fully_populated_rows_compared": 26998,
+    "missing_value_difference": "competitors use empty strings/default numbers where maxminddb-polars preserves nulls"
+  },
+  "operations": {
+    "maxminddb_polars_path_country": {
+      "median_seconds": 0.04580624890513718,
+      "rows_per_second": 1091554.126240459,
+      "samples_seconds": [
+        0.04597257310524583,
+        0.04580624890513718,
+        0.0452698920853436,
+        0.04583397810347378,
+        0.04570472612977028
+      ],
+      "output_bytes": 499196
+    },
+    "polars_maxminddb_country": {
+      "median_seconds": 0.08916201395913959,
+      "rows_per_second": 560776.92483386,
+      "samples_seconds": [
+        0.08998635597527027,
+        0.08960342803038657,
+        0.08844187599606812,
+        0.08914874098263681,
+        0.08916201395913959
+      ],
+      "output_bytes": 499196
+    },
+    "polars_iptools_full_country": {
+      "median_seconds": 0.047014042967930436,
+      "rows_per_second": 1063512.024143645,
+      "samples_seconds": [
+        0.04680483997799456,
+        0.046687475172802806,
+        0.048591131111606956,
+        0.047014042967930436,
+        0.0475435780826956
+      ],
+      "output_bytes": 499196
+    },
+    "maxminddb_polars_partial_3": {
+      "median_seconds": 0.06946535990573466,
+      "rows_per_second": 719783.2137895868,
+      "samples_seconds": [
+        0.06874378793872893,
+        0.0700708101503551,
+        0.06946535990573466,
+        0.06977993389591575,
+        0.06926218699663877
+      ],
+      "output_bytes": 1123267
+    },
+    "polars_maxminddb_3": {
+      "median_seconds": 0.2650205232203007,
+      "rows_per_second": 188664.6339402064,
+      "samples_seconds": [
+        0.2663513021543622,
+        0.2651464540977031,
+        0.26224938593804836,
+        0.26388769992627203,
+        0.2650205232203007
+      ],
+      "output_bytes": 1123267
+    },
+    "polars_iptools_full_3": {
+      "median_seconds": 0.046921340050175786,
+      "rows_per_second": 1065613.2145103277,
+      "samples_seconds": [
+        0.0473026018589735,
+        0.04713751096278429,
+        0.04595463001169264,
+        0.046921340050175786,
+        0.04683614685200155
+      ],
+      "output_bytes": 1123267
+    }
+  },
+  "peak_rss_kib": 214032
+}

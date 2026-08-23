@@ -55,4 +55,6 @@ exercised in the current readiness pass; its content-free metrics are committed
 as `benchmarks/results/real-geolite2-city.json`.
 
 Comparisons with other implementations are informational rather than gates and
-must record exact dependency versions and the same inputs.
+must record exact dependency versions and the same inputs. The current
+reproducible results and semantic differences are in
+[`comparison.md`](comparison.md).
