@@ -32,7 +32,8 @@ crates.io, npm, or `oschwald` GitHub. These observations do not reserve names.
 - [x] The default Actions token permission is read-only.
 - [x] Workflows cannot approve pull requests.
 - [x] `main` blocks force pushes and deletion and requires pull requests.
-- [x] Stable lint, Rust test, Python smoke, and distribution checks are required.
+- [x] Stable lint, Rust test, and Python smoke checks are required.
+- [x] Relevant package changes run the complete distribution-validation workflow.
 - [x] A `v*` tag ruleset blocks tag updates and deletion.
 - [x] Workflow artifacts are retained for 30 days.
 - [x] Merge, squash, and rebase merges are allowed; merged branches are deleted.
@@ -43,11 +44,13 @@ conversations, an up-to-date branch, and these status checks:
 - `Clippy`
 - `Metadata and locks`
 - `Prettier`
-- `Python`
 - `Rustfmt`
 - `Rust unit tests`
 - `Python 3.10 on ubuntu-latest`
-- `Validate distributions`
+
+`Validate distributions` is intentionally not required because the artifact
+workflow is path-filtered; requiring it would block documentation-only pull
+requests for a check that does not run.
 
 Repository administrators retain a recovery bypass. Force pushes and branch
 deletion remain disabled for everyone.
