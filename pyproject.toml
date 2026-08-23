@@ -1,0 +1,80 @@
+[build-system]
+requires = ["maturin>=1.14,<1.15"]
+build-backend = "maturin"
+
+[project]
+name = "maxminddb-polars"
+dynamic = ["version"]
+description = "Fast Polars expressions for MaxMind DB lookups"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "ISC"
+authors = [
+    { name = "Gregory Oschwald", email = "oschwald@gmail.com" },
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: ISC License (ISCL)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Rust",
+    "Topic :: Database",
+    "Topic :: Internet",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+keywords = ["maxmind", "geoip", "mmdb", "polars"]
+dependencies = ["polars>=1.43,<1.44"]
+
+[project.urls]
+Homepage = "https://github.com/oschwald/maxminddb-polars"
+Repository = "https://github.com/oschwald/maxminddb-polars"
+"Bug Tracker" = "https://github.com/oschwald/maxminddb-polars/issues"
+Changelog = "https://github.com/oschwald/maxminddb-polars/blob/main/CHANGELOG.md"
+Contributing = "https://github.com/oschwald/maxminddb-polars/blob/main/CONTRIBUTING.md"
+
+[project.optional-dependencies]
+test = ["pytest>=9"]
+
+[dependency-groups]
+dev = [
+    "maturin>=1.14,<1.15",
+    "mypy>=1.19,<2",
+    "pytest>=9,<10",
+    "ruff>=0.15,<0.16",
+    "twine>=6,<7",
+]
+
+[tool.maturin]
+features = ["extension-module"]
+module-name = "maxminddb_polars._maxminddb_polars"
+python-source = "."
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+addopts = "--import-mode=importlib"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["maxminddb_polars", "tests/python"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "**/*.rs" },
+]
+
