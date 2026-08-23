@@ -1,0 +1,44 @@
+name: Bug report
+description: Report incorrect behavior, a crash, or a compatibility problem
+title: ""
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not report security vulnerabilities here. Use private vulnerability
+        reporting as described in SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: maxminddb-polars version
+      placeholder: 0.1.0a1
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include Python, Polars, operating system, and architecture.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Use a public test database or describe the schema without sharing licensed data.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true

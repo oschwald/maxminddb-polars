@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a new lookup capability, schema, or integration
+title: ""
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What use case cannot be handled cleanly today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API or behavior
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: performance
+    attributes:
+      label: Performance or compatibility considerations
