@@ -111,6 +111,22 @@ def test_whole_city_is_identical_eager_lazy_and_streaming(
     assert lazy.equals(eager)
 
 
+def test_repeated_whole_city_uses_arrow_gathers() -> None:
+    rows = 100_000
+    ips = ["89.160.20.128", "89.160.20.129", None, "203.0.113.1"]
+    frame = pl.DataFrame({"ip": (ips * ((rows + len(ips) - 1) // len(ips)))[:rows]})
+
+    result = frame.select(
+        mmp.lookup("ip", DATABASES / "GeoIP2-City-Test.mmdb").alias("record")
+    )
+
+    assert result.height == rows
+    assert result["record"].null_count() == rows // 2
+    assert result["record"].struct.field("country").struct.field("iso_code").head(
+        4
+    ).to_list() == ["SE", "SE", None, None]
+
+
 def test_whole_record_namespace_matches_standalone() -> None:
     database = DATABASES / "GeoLite2-ASN-Test.mmdb"
     result = pl.DataFrame({"ip": ["1.0.0.0"]}).select(

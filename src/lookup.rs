@@ -113,8 +113,7 @@ pub fn lookup_record_series(
         .iter()
         .map(|result| decode_known(result, record))
         .collect::<PolarsResult<Vec<_>>>()?;
-    let values = gather_values(batch.rows, &unique_values);
-    values_to_series(input.name().clone(), &dtype, values)
+    decoded_values_to_series(input.name().clone(), &unique_values, &batch.rows, &dtype)
 }
 
 pub(crate) struct LookupBatch<'a> {
@@ -231,8 +230,7 @@ fn decode_nested_path_values(
             })
             .collect::<PolarsResult<Vec<_>>>()
     })?;
-    let values = gather_values(batch.rows, &unique_values);
-    values_to_series(ips.name().clone(), dtype, values)
+    decoded_values_to_series(ips.name().clone(), &unique_values, &batch.rows, dtype)
 }
 
 struct ProjectionLeaf<'a> {
@@ -376,13 +374,59 @@ fn assemble_projection_series(
         .into_series())
 }
 
-fn gather_values<'a>(
-    rows: Vec<Option<usize>>,
-    unique_values: &'a [Option<Value<'a>>],
-) -> Vec<Option<Value<'a>>> {
-    rows.into_iter()
-        .map(|row| row.and_then(|index| unique_values[index].clone()))
-        .collect()
+fn decoded_values_to_series(
+    name: PlSmallStr,
+    unique_values: &[Option<Value<'_>>],
+    rows: &[Option<usize>],
+    dtype: &SchemaSpec,
+) -> PolarsResult<Series> {
+    let mut leaves = Vec::new();
+    flatten_projection(dtype, &mut Vec::new(), &mut leaves);
+    let indices = IdxCa::from_iter_options(
+        PlSmallStr::EMPTY,
+        rows.iter().map(|row| row.map(|index| index as IdxSize)),
+    );
+    let validity = Bitmap::from_iter(rows.iter().map(|row| {
+        row.and_then(|index| unique_values[index].as_ref())
+            .is_some()
+    }));
+    let mut leaf_series = Vec::with_capacity(leaves.len());
+    for leaf in leaves {
+        let values = unique_values
+            .iter()
+            .map(|record| {
+                Some(
+                    record
+                        .as_ref()
+                        .and_then(|record| value_at_path(record, &leaf.path))
+                        .cloned()
+                        .unwrap_or_else(|| crate::value::default_value(leaf.dtype)),
+                )
+            })
+            .collect();
+        let unique = values_to_series(PlSmallStr::EMPTY, leaf.dtype, values)?;
+        leaf_series.push(unique.take(&indices)?);
+    }
+    assemble_projection_series(
+        name,
+        dtype,
+        rows.len(),
+        &validity,
+        &mut leaf_series.into_iter(),
+    )
+}
+
+fn value_at_path<'a>(mut value: &'a Value<'a>, path: &[&str]) -> Option<&'a Value<'a>> {
+    for name in path {
+        let Value::Map(fields) = value else {
+            return None;
+        };
+        value = fields
+            .iter()
+            .find(|(field_name, _)| field_name.as_ref() == *name)
+            .map(|(_, value)| value)?;
+    }
+    Some(value)
 }
 
 #[cfg(test)]
