@@ -1,10 +1,13 @@
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::fmt;
+use std::sync::Arc;
 
+use maxminddb::{LookupResult, MaxMindDbError, PathElement};
 use polars::chunked_array::builder::{AnonymousOwnedListBuilder, ListBuilderTrait};
 use polars::prelude::*;
 use polars_arrow::bitmap::Bitmap;
-use serde::de::{MapAccess, SeqAccess, Visitor};
+use serde::de::{DeserializeSeed, Error as _, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
 use crate::schema::{SchemaField, SchemaSpec};
@@ -29,6 +32,145 @@ pub enum Value<'a> {
     Binary(Cow<'a, [u8]>),
     List(Vec<Value<'a>>),
     Map(Vec<(Cow<'a, str>, Value<'a>)>),
+}
+
+thread_local! {
+    static PROJECTED_SCHEMAS: RefCell<Vec<Arc<SchemaSpec>>> = const { RefCell::new(Vec::new()) };
+}
+
+struct ProjectedSchemaGuard;
+
+impl Drop for ProjectedSchemaGuard {
+    fn drop(&mut self) {
+        PROJECTED_SCHEMAS.with(|schemas| {
+            schemas.borrow_mut().pop();
+        });
+    }
+}
+
+pub fn with_projected_schema<R>(schema: &SchemaSpec, callback: impl FnOnce() -> R) -> R {
+    PROJECTED_SCHEMAS.with(|schemas| {
+        schemas.borrow_mut().push(Arc::new(schema.clone()));
+    });
+    let _guard = ProjectedSchemaGuard;
+    callback()
+}
+
+pub fn decode_projected_path<'a>(
+    result: &LookupResult<'a, Vec<u8>>,
+    path: &[PathElement<'_>],
+) -> Result<Option<Value<'a>>, MaxMindDbError> {
+    result
+        .decode_path::<ProjectedValue<'a>>(path)
+        .map(|value| value.map(|value| value.0))
+}
+
+struct ProjectedValue<'a>(Value<'a>);
+
+impl<'de> Deserialize<'de> for ProjectedValue<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let schema = PROJECTED_SCHEMAS
+            .with(|schemas| schemas.borrow().last().cloned())
+            .ok_or_else(|| D::Error::custom("projected MMDB decoder has no active schema"))?;
+        SchemaSeed(&schema)
+            .deserialize(deserializer)
+            .map(ProjectedValue)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SchemaSeed<'a>(&'a SchemaSpec);
+
+impl<'de> DeserializeSeed<'de> for SchemaSeed<'_> {
+    type Value = Value<'de>;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        match self.0 {
+            SchemaSpec::Struct { fields } => {
+                deserializer.deserialize_map(ProjectedMapVisitor { fields })
+            }
+            SchemaSpec::List { inner } => {
+                deserializer.deserialize_seq(ProjectedListVisitor { inner })
+            }
+            schema => {
+                let value = Value::deserialize(deserializer)?;
+                validate_scalar(&value, schema).map_err(D::Error::custom)?;
+                Ok(value)
+            }
+        }
+    }
+}
+
+struct ProjectedMapVisitor<'a> {
+    fields: &'a [SchemaField],
+}
+
+impl<'de> Visitor<'de> for ProjectedMapVisitor<'_> {
+    type Value = Value<'de>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an MMDB map matching the requested Struct dtype")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut values = vec![None; self.fields.len()];
+        while let Some(key) = map.next_key::<String>()? {
+            if let Some((index, field)) = self
+                .fields
+                .iter()
+                .enumerate()
+                .find(|(_, field)| field.name == key)
+            {
+                values[index] = Some(map.next_value_seed(SchemaSeed(&field.dtype))?);
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        Ok(Value::Map(
+            self.fields
+                .iter()
+                .zip(values)
+                .map(|(field, value)| {
+                    (
+                        Cow::Owned(field.name.clone()),
+                        value.unwrap_or_else(|| default_value(&field.dtype)),
+                    )
+                })
+                .collect(),
+        ))
+    }
+}
+
+struct ProjectedListVisitor<'a> {
+    inner: &'a SchemaSpec,
+}
+
+impl<'de> Visitor<'de> for ProjectedListVisitor<'_> {
+    type Value = Value<'de>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an MMDB array matching the requested List dtype")
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut values = Vec::with_capacity(sequence.size_hint().unwrap_or(0));
+        while let Some(value) = sequence.next_element_seed(SchemaSeed(self.inner))? {
+            values.push(value);
+        }
+        Ok(Value::List(values))
+    }
 }
 
 impl Value<'_> {
@@ -201,7 +343,8 @@ pub fn default_value(schema: &SchemaSpec) -> Value<'static> {
     }
 }
 
-pub fn project_value<'a>(value: &Value<'a>, schema: &SchemaSpec) -> PolarsResult<Value<'a>> {
+#[cfg(test)]
+fn project_value<'a>(value: &Value<'a>, schema: &SchemaSpec) -> PolarsResult<Value<'a>> {
     match (value, schema) {
         (Value::Map(values), SchemaSpec::Struct { fields }) => Ok(Value::Map(
             fields

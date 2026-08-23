@@ -33,6 +33,9 @@ City, Country, Enterprise, ISP, Connection Type, Anonymous IP,
 Density/Income, Domain, or ASN. Their stable Polars dtypes are exported from
 `maxminddb_polars.schemas`.
 
+Pass a nested mapping or `pl.Struct` as `dtype` for a partial known record or a
+custom database. See [Custom and partial schemas](docs/custom-schemas.md).
+
 Inputs must have String dtype. Null inputs, lookup misses, and missing paths
 produce null. Invalid IP strings raise by default; pass `strict=False` to turn
 them into nulls. The package owns a strong byte snapshot for each database file

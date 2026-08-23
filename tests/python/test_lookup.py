@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import concurrent.futures
 import ipaddress
 import json
+import os
+import shutil
 from pathlib import Path
 from typing import Literal
 
@@ -125,3 +128,48 @@ def test_empty_and_all_null_input_keep_the_static_schema() -> None:
         assert result.schema == {"record": mmp.schemas.COUNTRY}
         assert result.height == frame.height
         assert result["record"].null_count() == frame.height
+
+
+def test_reader_cache_is_safe_across_concurrent_evaluations() -> None:
+    database = DATABASES / "GeoIP2-City-Test.mmdb"
+    expression = mmp.lookup_path("ip", database, ["country", "iso_code"])
+
+    def evaluate(_: int) -> list[str | None]:
+        return (
+            pl.DataFrame({"ip": ["89.160.20.128", None] * 500})
+            .select(expression)
+            .to_series()
+            .to_list()
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        outputs = list(executor.map(evaluate, range(16)))
+    assert all(output[:4] == ["SE", None, "SE", None] for output in outputs)
+
+
+def test_planned_expression_keeps_its_snapshot_after_atomic_replacement(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "database.mmdb"
+    shutil.copy2(DATABASES / "GeoIP2-City-Test.mmdb", database)
+    old_query = (
+        pl.DataFrame({"ip": ["89.160.20.128"]})
+        .lazy()
+        .select(mmp.lookup("ip", database).alias("record"))
+    )
+    assert old_query.collect_schema() == {"record": mmp.schemas.CITY}
+
+    replacement = tmp_path / "replacement.mmdb"
+    shutil.copy2(DATABASES / "GeoIP2-Country-Test.mmdb", replacement)
+    os.replace(replacement, database)
+
+    old_result = old_query.collect()
+    assert old_result.schema == {"record": mmp.schemas.CITY}
+    assert old_result["record"].struct.field("city").is_not_null().item()
+
+    new_query = (
+        pl.DataFrame({"ip": ["89.160.20.128"]})
+        .lazy()
+        .select(mmp.lookup("ip", database).alias("record"))
+    )
+    assert new_query.collect_schema() == {"record": mmp.schemas.COUNTRY}

@@ -15,3 +15,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   strictness controls, offset deduplication, and generation-safe reader caching.
 - Added whole-record lookups, all nine standard MaxMind record families,
   metadata aliases, direct nested Polars builders, and public schema constants.
+- Added schema-guided custom and partial Struct/List decoding with mapping and
+  `pl.Struct` parity, planning-time known-schema validation, and fused lookups.
