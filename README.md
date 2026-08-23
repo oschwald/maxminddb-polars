@@ -56,6 +56,13 @@ cargo test --locked
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow.
 
+Documentation:
+
+- [API and supported databases](docs/api.md)
+- [Custom and partial schemas](docs/custom-schemas.md)
+- [Installation and compatibility](docs/compatibility.md)
+- [Performance and benchmarks](docs/performance.md)
+
 ## Project policies
 
 - [Changelog](CHANGELOG.md)

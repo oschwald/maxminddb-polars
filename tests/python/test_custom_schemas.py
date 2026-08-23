@@ -80,6 +80,37 @@ def test_mapping_and_polars_struct_are_identical() -> None:
     assert result["mapping"].equals(result["struct"])
 
 
+def test_every_supported_scalar_dtype_crosses_the_plugin_boundary() -> None:
+    dtype = {
+        "bytes": pl.Binary,
+        "boolean": pl.Boolean,
+        "double": pl.Float64,
+        "float": pl.Float32,
+        "int32": pl.Int32,
+        "uint16": pl.UInt16,
+        "uint32": pl.UInt32,
+        "uint64": pl.UInt64,
+        "uint128": pl.UInt128,
+        "utf8_string": pl.String,
+    }
+    result = pl.DataFrame({"ip": ["::1.1.1.0"]}).select(
+        mmp.lookup("ip", CUSTOM_DB, dtype=dtype).alias("record")
+    )
+
+    assert result.schema == {"record": pl.Struct(dtype)}
+    record = result.item()
+    assert record["bytes"] == b"\x00\x00\x00*"
+    assert record["boolean"] is True
+    assert record["double"] == 42.123456
+    assert record["float"] == pytest.approx(1.1)
+    assert record["int32"] == -(2**28)
+    assert record["uint16"] == 100
+    assert record["uint32"] == 2**28
+    assert record["uint64"] == 2**60
+    assert record["uint128"] == 2**120
+    assert record["utf8_string"] == "unicode! ☯ - ♫"
+
+
 def test_partial_known_schema_selects_nested_fields() -> None:
     projection: dict[str, Any] = {
         "country": {"iso_code": pl.String},

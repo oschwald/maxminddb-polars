@@ -53,6 +53,13 @@ def inspect_wheel(path: Path, expected_version: str | None) -> None:
             lambda name: PurePosixPath(name) == PACKAGE / "__init__.py",
             "maxminddb_polars/__init__.py",
         )
+        for package_file in ["_api.py", "_schema.py", "schemas.py", "py.typed"]:
+            expected_path = PACKAGE / package_file
+            _require(
+                names,
+                lambda name: PurePosixPath(name) == expected_path,
+                f"maxminddb_polars/{package_file}",
+            )
         _require(
             names,
             lambda name: (

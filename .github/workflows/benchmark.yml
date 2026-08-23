@@ -20,8 +20,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  smoke:
-    name: Native expression smoke benchmark
+  lookups:
+    name: Lookup benchmark
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -29,6 +29,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          submodules: recursive
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
@@ -42,7 +43,7 @@ jobs:
           BENCHMARK_REPEATS: ${{ inputs.repeats }}
           BENCHMARK_ROWS: ${{ inputs.rows }}
         run: >-
-          uv run --no-sync python benchmarks/smoke.py
+          uv run --no-sync python benchmarks/lookups.py
           --rows "$BENCHMARK_ROWS"
           --repeats "$BENCHMARK_REPEATS"
           --json benchmark-results.json

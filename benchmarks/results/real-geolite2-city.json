@@ -1,0 +1,45 @@
+{
+  "database_bytes": 33733040,
+  "polars": "1.43.2",
+  "maxminddb_polars": "0.0.0",
+  "operations": {
+    "scalar": {
+      "rows": 50000,
+      "median_seconds": 0.022554214112460613,
+      "rows_per_second": 2216880.6126734563,
+      "samples_seconds": [
+        0.021966320928186178,
+        0.022554214112460613,
+        0.022806274937465787
+      ],
+      "output_bytes": 66668
+    },
+    "partial": {
+      "rows": 50000,
+      "median_seconds": 0.02536601503379643,
+      "rows_per_second": 1971141.3059316752,
+      "samples_seconds": [
+        0.0255812571849674,
+        0.02536601503379643,
+        0.025194449117407203
+      ],
+      "output_bytes": 897918
+    },
+    "whole_city": {
+      "rows": 50000,
+      "median_seconds": 0.3764216520357877,
+      "rows_per_second": 132829.76611357715,
+      "samples_seconds": [
+        0.3762914079707116,
+        0.3768374000210315,
+        0.3764216520357877
+      ],
+      "output_bytes": 18325402
+    }
+  },
+  "gates": {
+    "partial_to_scalar_median_ratio": 1.1246685389841347,
+    "partial_within_30_percent_of_scalar": true
+  },
+  "peak_rss_kib": 277172
+}
