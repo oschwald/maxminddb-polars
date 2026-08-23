@@ -17,8 +17,8 @@ tests and evidence.
 
 ```console
 git submodule update --init --recursive
-uv sync --all-extras --locked
-uv run maturin develop
+uv sync --all-extras --locked --no-install-project
+uv run --no-sync maturin develop
 ```
 
 The MaxMind-DB submodule contains test fixtures. Do not commit proprietary or
@@ -44,7 +44,9 @@ The equivalent individual commands are:
 uv run pytest
 cargo test --locked
 cargo fmt --all -- --check
+cargo fmt --manifest-path fuzz/Cargo.toml --all -- --check
 cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy

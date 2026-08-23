@@ -55,7 +55,9 @@ jobs:
         with:
           toolchain: stable
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-      - run: uv sync --python "$PYTHON_VERSION" --all-extras --locked
+      - run: >-
+          uv sync --python "$PYTHON_VERSION" --all-extras --locked
+          --no-install-project
       - run: uv pip install --python .venv/bin/python "polars==$POLARS_VERSION"
       - run: uv run --no-sync maturin develop
       - run: uv run --no-sync pytest

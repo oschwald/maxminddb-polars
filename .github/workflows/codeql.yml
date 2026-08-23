@@ -37,6 +37,6 @@ jobs:
       - uses: github/codeql-action/init@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
           languages: python, rust
-      - run: uv sync --all-extras --locked
+      - run: uv sync --all-extras --locked --no-install-project
       - run: uv run --no-sync maturin build --release --locked
       - uses: github/codeql-action/analyze@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0

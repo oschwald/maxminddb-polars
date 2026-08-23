@@ -1,6 +1,6 @@
 # ADR 0001: Initial public API
 
-- Status: Accepted for implementation
+- Status: Accepted and frozen for 0.1
 - Date: 2026-08-23
 
 ## Context
@@ -59,3 +59,11 @@ plugin symbols, a JSON API, or a separate multi-path operation in `0.1`.
 output projection provides near-parity in every supported execution mode. The
 Rust engine will keep one internal projection representation so path lookup,
 partial Struct lookup, and a future optimizer integration share implementation.
+
+## Freeze
+
+The API was frozen for the `0.1` release line on 2026-08-23 after scalar,
+whole-record, custom, partial, eager, lazy, and streaming validation. Until a
+`0.2` release, additions may be backward compatible, but the two signatures,
+their strict/null behavior, schema constants, and exported symbol list above
+must not change incompatibly.

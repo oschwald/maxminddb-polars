@@ -17,3 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   metadata aliases, direct nested Polars builders, and public schema constants.
 - Added schema-guided custom and partial Struct/List decoding with mapping and
   `pl.Struct` parity, planning-time known-schema validation, and fused lookups.
+- Added reproducible fixture, real City, and pinned competitor benchmarks with
+  peak-memory reporting and bounded large-run controls.
+- Added property tests, the complete upstream corruption corpus, four fuzz
+  targets, bounded CI fuzzing, and custom-decoder allocation hardening.
+- Added API, compatibility, performance, comparison, and security-testing
+  documentation and froze the public `0.1` API.

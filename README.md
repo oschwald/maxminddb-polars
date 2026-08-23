@@ -64,6 +64,7 @@ Documentation:
 - [Performance and benchmarks](docs/performance.md)
 - [Competitor comparison](docs/comparison.md)
 - [Security testing](docs/security-testing.md)
+- [Release readiness](docs/release-readiness.md)
 
 ## Project policies
 

@@ -3,7 +3,12 @@ import importlib.metadata
 
 import polars as pl
 
+import maxminddb_polars as mmp
 from maxminddb_polars._internal import identity
+
+
+def test_public_surface_is_frozen_for_zero_one() -> None:
+    assert mmp.__all__ == ["__version__", "lookup", "lookup_path", "schemas"]
 
 
 def test_native_module_is_importable() -> None:
