@@ -80,9 +80,13 @@ advisories in `.cargo/audit.toml`:
 - `RUSTSEC-2026-0176`: the project does not call `nth` or `nth_back` on PyO3
   list or tuple iterators.
 - `RUSTSEC-2026-0177`: the project does not construct `PyCFunction` closures.
+- `RUSTSEC-2026-0194` and `RUSTSEC-2026-0195`: `quick-xml` is locked only
+  through the disabled cloud features of Polars' `object_store`; it is absent
+  from every built target (`cargo tree --target all -i quick-xml`) and the
+  plugin does not parse XML.
 
 The PyO3 fixes require PyO3 0.29, which in turn requires pyo3-polars 0.28 and
 Rust Polars 0.55; that Polars update also removes the current `bincode`
-dependency. Re-evaluate all three exceptions with that coordinated
+dependency. Re-evaluate all five exception IDs with that coordinated
 compatibility update, or by 2026-09-30, whichever comes first. The
 corresponding Dependabot alerts remain open so the exceptions stay visible.

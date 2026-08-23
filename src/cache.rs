@@ -52,7 +52,7 @@ fn open_snapshot(identity: &DatabaseIdentity) -> PolarsResult<CachedReader> {
             identity.canonical_path
         )
     })?;
-    if canonical_path != Path::new(&identity.canonical_path) {
+    if canonical_path_string(&canonical_path) != identity.canonical_path {
         polars_bail!(
             ComputeError:
             "MMDB path identity changed from {:?} to {:?}; reconstruct the expression",
@@ -129,10 +129,24 @@ fn identity_for_path(path: &Path) -> PolarsResult<DatabaseIdentity> {
         })?;
 
     Ok(DatabaseIdentity {
-        canonical_path: path.to_string_lossy().into_owned(),
+        canonical_path: canonical_path_string(path),
         size: metadata.len(),
         modified_ns,
     })
+}
+
+fn canonical_path_string(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        if let Some(path) = path.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{path}");
+        }
+        if let Some(path) = path.strip_prefix(r"\\?\") {
+            return path.to_owned();
+        }
+    }
+    path.into_owned()
 }
 
 #[cfg(test)]

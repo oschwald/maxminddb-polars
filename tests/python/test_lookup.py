@@ -19,7 +19,9 @@ SOURCES = DATA / "source-data"
 
 
 def _first_ip(source: str) -> str:
-    records: list[dict[str, object]] = json.loads((SOURCES / source).read_text())
+    records: list[dict[str, object]] = json.loads(
+        (SOURCES / source).read_text(encoding="utf-8")
+    )
     network = next(iter(records[0]))
     return str(ipaddress.ip_network(network).network_address)
 
