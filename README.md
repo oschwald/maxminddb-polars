@@ -6,13 +6,9 @@ Fast Polars expressions for MaxMind DB lookups, implemented in Rust.
 > This project is pre-release. Its public API and compatibility policy are
 > still being implemented and may change before `0.1.0`.
 
-The package will provide nested whole-record lookups for recognized MaxMind DB
+The package provides nested whole-record lookups for recognized MaxMind DB
 schemas and selective path lookups for efficient enrichment. Callers supply
 their own licensed or GeoLite database; no database is bundled or downloaded.
-
-The scalar `lookup_path` API is available for selective enrichment. Known City
-and ASN databases infer path dtypes; other MMDB schemas use an explicit dtype.
-Whole-record and custom nested-schema support remain under development.
 
 ```python
 from pathlib import Path
@@ -24,12 +20,18 @@ database = Path("/data/GeoLite2-City.mmdb")
 frame = pl.DataFrame({"ip": ["81.2.69.142", None]})
 
 result = frame.select(
-    mmp.lookup_path("ip", database, ("country", "iso_code")).alias("country")
+    country=mmp.lookup_path("ip", database, ("country", "iso_code")),
+    city=mmp.lookup("ip", database),
 )
 
 # The expression namespace is equivalent:
 country = pl.col("ip").mmdb.lookup_path(database, ("country", "iso_code"))
 ```
+
+Whole records infer one of the nine standard schemas from database metadata:
+City, Country, Enterprise, ISP, Connection Type, Anonymous IP,
+Density/Income, Domain, or ASN. Their stable Polars dtypes are exported from
+`maxminddb_polars.schemas`.
 
 Inputs must have String dtype. Null inputs, lookup misses, and missing paths
 produce null. Invalid IP strings raise by default; pass `strict=False` to turn

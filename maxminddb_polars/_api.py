@@ -78,6 +78,34 @@ def lookup_path(
     )
 
 
+def lookup(
+    expr: IntoExpr,
+    database: str | Path,
+    *,
+    dtype: DTypeLike | None = None,
+    strict: bool = True,
+) -> pl.Expr:
+    """Look up one whole MMDB record for each IP address in ``expr``.
+
+    Standard MaxMind database schemas are inferred from metadata. Unknown
+    databases require an explicit Struct dtype or field-to-dtype mapping. A
+    partial Struct selects only those fields from a known database.
+    """
+    if not isinstance(strict, bool):
+        raise TypeError(f"strict must be a bool, got {strict!r}")
+    return register_plugin_function(
+        plugin_path=_PLUGIN_PATH,
+        function_name="mmdb_lookup",
+        args=[expr],
+        kwargs={
+            "database": _database_identity(database),
+            "dtype": None if dtype is None else normalize_dtype(dtype),
+            "strict": strict,
+        },
+        is_elementwise=True,
+    )
+
+
 @pl.api.register_expr_namespace("mmdb")
 class MaxMindDbNameSpace:
     """MaxMind DB operations for a Polars expression."""
@@ -95,3 +123,13 @@ class MaxMindDbNameSpace:
     ) -> pl.Expr:
         """Return the value at ``path`` for every IP in this expression."""
         return lookup_path(self._expr, database, path, dtype=dtype, strict=strict)
+
+    def lookup(
+        self,
+        database: str | Path,
+        *,
+        dtype: DTypeLike | None = None,
+        strict: bool = True,
+    ) -> pl.Expr:
+        """Return a whole or projected record for every IP."""
+        return lookup(self._expr, database, dtype=dtype, strict=strict)

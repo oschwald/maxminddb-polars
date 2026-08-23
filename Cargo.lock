@@ -1202,6 +1202,7 @@ version = "0.0.0"
 dependencies = [
  "maxminddb",
  "polars",
+ "polars-arrow",
  "pyo3",
  "pyo3-polars",
  "serde",

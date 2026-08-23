@@ -75,10 +75,6 @@ impl SchemaSpec {
             ),
         }
     }
-
-    pub fn is_scalar(&self) -> bool {
-        !matches!(self, Self::List { .. } | Self::Struct { .. })
-    }
 }
 
 pub fn resolve_path_dtype(
@@ -214,6 +210,20 @@ fn represented_country() -> SchemaSpec {
     struct_(fields)
 }
 
+fn country_traits() -> SchemaSpec {
+    struct_(vec![field("is_anycast", SchemaSpec::Boolean)])
+}
+
+fn country_schema() -> SchemaSpec {
+    struct_(vec![
+        field("continent", continent()),
+        field("country", country()),
+        field("registered_country", country()),
+        field("represented_country", represented_country()),
+        field("traits", country_traits()),
+    ])
+}
+
 fn city_schema() -> SchemaSpec {
     let subdivision = struct_(vec![
         field("geoname_id", SchemaSpec::UInt32),
@@ -249,10 +259,7 @@ fn city_schema() -> SchemaSpec {
                 inner: Box::new(subdivision),
             },
         ),
-        field(
-            "traits",
-            struct_(vec![field("is_anycast", SchemaSpec::Boolean)]),
-        ),
+        field("traits", country_traits()),
     ])
 }
 
@@ -263,17 +270,278 @@ fn asn_schema() -> SchemaSpec {
     ])
 }
 
+fn enterprise_schema() -> SchemaSpec {
+    let enterprise_country = struct_(vec![
+        field("confidence", SchemaSpec::UInt8),
+        field("geoname_id", SchemaSpec::UInt32),
+        field("is_in_european_union", SchemaSpec::Boolean),
+        field("iso_code", SchemaSpec::String),
+        field("names", names()),
+    ]);
+    let enterprise_subdivision = struct_(vec![
+        field("confidence", SchemaSpec::UInt8),
+        field("geoname_id", SchemaSpec::UInt32),
+        field("iso_code", SchemaSpec::String),
+        field("names", names()),
+    ]);
+    struct_(vec![
+        field(
+            "city",
+            struct_(vec![
+                field("confidence", SchemaSpec::UInt8),
+                field("geoname_id", SchemaSpec::UInt32),
+                field("names", names()),
+            ]),
+        ),
+        field("continent", continent()),
+        field("country", enterprise_country.clone()),
+        field(
+            "location",
+            struct_(vec![
+                field("accuracy_radius", SchemaSpec::UInt16),
+                field("latitude", SchemaSpec::Float64),
+                field("longitude", SchemaSpec::Float64),
+                field("metro_code", SchemaSpec::UInt16),
+                field("time_zone", SchemaSpec::String),
+            ]),
+        ),
+        field(
+            "postal",
+            struct_(vec![
+                field("code", SchemaSpec::String),
+                field("confidence", SchemaSpec::UInt8),
+            ]),
+        ),
+        field("registered_country", enterprise_country),
+        field("represented_country", represented_country()),
+        field(
+            "subdivisions",
+            SchemaSpec::List {
+                inner: Box::new(enterprise_subdivision),
+            },
+        ),
+        field(
+            "traits",
+            struct_(vec![
+                field("autonomous_system_number", SchemaSpec::UInt32),
+                field("autonomous_system_organization", SchemaSpec::String),
+                field("connection_type", SchemaSpec::String),
+                field("domain", SchemaSpec::String),
+                field("is_anonymous", SchemaSpec::Boolean),
+                field("is_anonymous_vpn", SchemaSpec::Boolean),
+                field("is_anycast", SchemaSpec::Boolean),
+                field("is_hosting_provider", SchemaSpec::Boolean),
+                field("isp", SchemaSpec::String),
+                field("is_public_proxy", SchemaSpec::Boolean),
+                field("is_residential_proxy", SchemaSpec::Boolean),
+                field("is_tor_exit_node", SchemaSpec::Boolean),
+                field("mobile_country_code", SchemaSpec::String),
+                field("mobile_network_code", SchemaSpec::String),
+                field("organization", SchemaSpec::String),
+                field("user_type", SchemaSpec::String),
+            ]),
+        ),
+    ])
+}
+
+fn isp_schema() -> SchemaSpec {
+    struct_(vec![
+        field("autonomous_system_number", SchemaSpec::UInt32),
+        field("autonomous_system_organization", SchemaSpec::String),
+        field("isp", SchemaSpec::String),
+        field("mobile_country_code", SchemaSpec::String),
+        field("mobile_network_code", SchemaSpec::String),
+        field("organization", SchemaSpec::String),
+    ])
+}
+
+fn anonymous_ip_schema() -> SchemaSpec {
+    struct_(
+        [
+            "is_anonymous",
+            "is_anonymous_vpn",
+            "is_hosting_provider",
+            "is_public_proxy",
+            "is_residential_proxy",
+            "is_tor_exit_node",
+        ]
+        .into_iter()
+        .map(|name| field(name, SchemaSpec::Boolean))
+        .collect(),
+    )
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum KnownRecord {
+    City,
+    Country,
+    Enterprise,
+    Isp,
+    ConnectionType,
+    AnonymousIp,
+    DensityIncome,
+    Domain,
+    Asn,
+}
+
+impl KnownRecord {
+    pub fn from_database_type(database_type: &str) -> Option<Self> {
+        match database_type {
+            "GeoIP2-City" | "GeoLite2-City" | "GeoIP2-City-Shield" => Some(Self::City),
+            "GeoIP2-Country" | "GeoLite2-Country" | "GeoIP2-Country-Shield" => Some(Self::Country),
+            "GeoIP2-Enterprise"
+            | "GeoIP2-Enterprise-Shield"
+            | "GeoIP2-Precision-Enterprise"
+            | "GeoIP2-Precision-Enterprise-Shield" => Some(Self::Enterprise),
+            "GeoIP2-ISP" => Some(Self::Isp),
+            "GeoIP2-Connection-Type" => Some(Self::ConnectionType),
+            "GeoIP2-Anonymous-IP" => Some(Self::AnonymousIp),
+            "GeoIP2-DensityIncome" => Some(Self::DensityIncome),
+            "GeoIP2-Domain" => Some(Self::Domain),
+            "GeoIP2-ASN" | "GeoLite2-ASN" => Some(Self::Asn),
+            _ => None,
+        }
+    }
+
+    pub fn schema(self) -> SchemaSpec {
+        match self {
+            Self::City => city_schema(),
+            Self::Country => country_schema(),
+            Self::Enterprise => enterprise_schema(),
+            Self::Isp => isp_schema(),
+            Self::ConnectionType => struct_(vec![field("connection_type", SchemaSpec::String)]),
+            Self::AnonymousIp => anonymous_ip_schema(),
+            Self::DensityIncome => struct_(vec![
+                field("average_income", SchemaSpec::UInt32),
+                field("population_density", SchemaSpec::UInt32),
+            ]),
+            Self::Domain => struct_(vec![field("domain", SchemaSpec::String)]),
+            Self::Asn => asn_schema(),
+        }
+    }
+}
+
+pub fn known_record(reader: &CachedReader) -> Option<KnownRecord> {
+    KnownRecord::from_database_type(&reader.metadata().database_type)
+}
+
 pub fn known_schema(database_type: &str) -> Option<SchemaSpec> {
-    match database_type {
-        "GeoIP2-City" | "GeoLite2-City" => Some(city_schema()),
-        "GeoIP2-ASN" | "GeoLite2-ASN" => Some(asn_schema()),
-        _ => None,
+    KnownRecord::from_database_type(database_type).map(KnownRecord::schema)
+}
+
+pub fn resolve_record_dtype(
+    reader: &CachedReader,
+    explicit: Option<&SchemaSpec>,
+) -> PolarsResult<(SchemaSpec, Option<KnownRecord>)> {
+    let known = known_record(reader);
+    match (explicit, known) {
+        (None, Some(record)) => Ok((record.schema(), Some(record))),
+        (None, None) => {
+            let database_type = &reader.metadata().database_type;
+            polars_bail!(
+                InvalidOperation:
+                "whole-record dtype cannot be inferred for MMDB database_type {database_type:?}; pass a Struct dtype explicitly"
+            )
+        }
+        (Some(explicit @ SchemaSpec::Struct { .. }), known) => {
+            if let Some(record) = known {
+                validate_partial_schema(explicit, &record.schema(), &mut Vec::new())?;
+            }
+            Ok((explicit.clone(), known))
+        }
+        (Some(explicit), _) => {
+            polars_bail!(
+                InvalidOperation:
+                "whole-record MMDB lookup requires a Struct dtype, got {}",
+                explicit.to_polars()
+            )
+        }
+    }
+}
+
+fn validate_partial_schema(
+    requested: &SchemaSpec,
+    known: &SchemaSpec,
+    path: &mut Vec<String>,
+) -> PolarsResult<()> {
+    match (requested, known) {
+        (
+            SchemaSpec::Struct {
+                fields: requested_fields,
+            },
+            SchemaSpec::Struct {
+                fields: known_fields,
+            },
+        ) => {
+            for requested_field in requested_fields {
+                let Some(known_field) = known_fields
+                    .iter()
+                    .find(|field| field.name == requested_field.name)
+                else {
+                    polars_bail!(
+                        InvalidOperation:
+                        "known MMDB schema has no field {:?} at /{}",
+                        requested_field.name,
+                        path.join("/")
+                    )
+                };
+                path.push(requested_field.name.clone());
+                validate_partial_schema(&requested_field.dtype, &known_field.dtype, path)?;
+                path.pop();
+            }
+            Ok(())
+        }
+        (SchemaSpec::List { inner: requested }, SchemaSpec::List { inner: known }) => {
+            validate_partial_schema(requested, known, path)
+        }
+        (requested, known) if requested == known => Ok(()),
+        (requested, known) => {
+            polars_bail!(
+                InvalidOperation:
+                "requested dtype {} does not match known dtype {} at /{}",
+                requested.to_polars(),
+                known.to_polars(),
+                path.join("/")
+            )
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn maps_every_supported_metadata_alias() {
+        let cases = [
+            ("GeoIP2-City", KnownRecord::City),
+            ("GeoLite2-City", KnownRecord::City),
+            ("GeoIP2-City-Shield", KnownRecord::City),
+            ("GeoIP2-Country", KnownRecord::Country),
+            ("GeoLite2-Country", KnownRecord::Country),
+            ("GeoIP2-Country-Shield", KnownRecord::Country),
+            ("GeoIP2-Enterprise", KnownRecord::Enterprise),
+            ("GeoIP2-Enterprise-Shield", KnownRecord::Enterprise),
+            ("GeoIP2-Precision-Enterprise", KnownRecord::Enterprise),
+            (
+                "GeoIP2-Precision-Enterprise-Shield",
+                KnownRecord::Enterprise,
+            ),
+            ("GeoIP2-ISP", KnownRecord::Isp),
+            ("GeoIP2-Connection-Type", KnownRecord::ConnectionType),
+            ("GeoIP2-Anonymous-IP", KnownRecord::AnonymousIp),
+            ("GeoIP2-DensityIncome", KnownRecord::DensityIncome),
+            ("GeoIP2-Domain", KnownRecord::Domain),
+            ("GeoIP2-ASN", KnownRecord::Asn),
+            ("GeoLite2-ASN", KnownRecord::Asn),
+        ];
+        for (database_type, expected) in cases {
+            assert_eq!(
+                KnownRecord::from_database_type(database_type),
+                Some(expected)
+            );
+        }
+    }
 
     #[test]
     fn schema_spec_round_trips_through_kwargs_json() {
@@ -317,7 +585,7 @@ mod tests {
     #[test]
     fn maps_only_exact_known_database_types() {
         assert!(known_schema("GeoIP2-City").is_some());
-        assert!(known_schema("GeoIP2-City-Shield").is_none());
+        assert!(known_schema("GeoIP2-City-Shield").is_some());
         assert!(known_schema("custom-City").is_none());
     }
 }

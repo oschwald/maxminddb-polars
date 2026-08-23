@@ -1,12 +1,14 @@
 mod cache;
+mod known;
 mod lookup;
 mod schema;
+mod value;
 
 use polars::prelude::*;
 use pyo3::prelude::*;
 use pyo3_polars::derive::polars_expr;
 
-use crate::lookup::LookupPathKwargs;
+use crate::lookup::{LookupPathKwargs, LookupRecordKwargs};
 
 #[pymodule]
 fn _maxminddb_polars(module: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -43,6 +45,22 @@ fn lookup_path_output(input_fields: &[Field], kwargs: LookupPathKwargs) -> Polar
 #[polars_expr(output_type_func_with_kwargs=lookup_path_output)]
 fn mmdb_lookup_path(inputs: &[Series], kwargs: LookupPathKwargs) -> PolarsResult<Series> {
     lookup::lookup_path_series(inputs, &kwargs)
+}
+
+fn lookup_output(input_fields: &[Field], kwargs: LookupRecordKwargs) -> PolarsResult<Field> {
+    let [input] = input_fields else {
+        polars_bail!(InvalidOperation: "MMDB lookup expects exactly one input column")
+    };
+    if input.dtype() != &DataType::String {
+        polars_bail!(InvalidOperation: "MMDB lookup input must have String dtype")
+    }
+    let dtype = lookup::record_output_dtype(&kwargs)?.to_polars();
+    Ok(Field::new(input.name().clone(), dtype))
+}
+
+#[polars_expr(output_type_func_with_kwargs=lookup_output)]
+fn mmdb_lookup(inputs: &[Series], kwargs: LookupRecordKwargs) -> PolarsResult<Series> {
+    lookup::lookup_record_series(inputs, &kwargs)
 }
 
 #[cfg(test)]

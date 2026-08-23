@@ -2,8 +2,9 @@
 
 from importlib.metadata import version
 
-from maxminddb_polars._api import lookup_path
+from maxminddb_polars import schemas
+from maxminddb_polars._api import lookup, lookup_path
 
 __version__ = version("maxminddb-polars")
 
-__all__ = ["__version__", "lookup_path"]
+__all__ = ["__version__", "lookup", "lookup_path", "schemas"]

@@ -13,3 +13,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added scalar `lookup_path` expressions and the `.mmdb.lookup_path` namespace.
 - Added known City/ASN dtype inference, explicit scalar dtypes for custom MMDBs,
   strictness controls, offset deduplication, and generation-safe reader caching.
+- Added whole-record lookups, all nine standard MaxMind record families,
+  metadata aliases, direct nested Polars builders, and public schema constants.
