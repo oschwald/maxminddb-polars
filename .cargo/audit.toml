@@ -1,0 +1,6 @@
+[advisories]
+# The Polars 1.43 plugin ABI requires pyo3-polars 0.27 and PyO3 0.28. The
+# affected PyList/PyTuple iterator nth methods and PyCFunction closure API are
+# not called by this project. Revisit both exceptions with the Polars 0.55 /
+# pyo3-polars 0.28 compatibility update, or by 2026-09-30.
+ignore = ["RUSTSEC-2026-0176", "RUSTSEC-2026-0177"]
