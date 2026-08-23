@@ -3,11 +3,12 @@
 set -euo pipefail
 
 uv sync --all-extras --locked
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features --locked -- -D warnings
+npm clean-install --ignore-scripts
+precious lint --all
 cargo test --locked
-uv run --all-extras --locked ruff check .
-uv run --all-extras --locked ruff format --check .
-uv run --all-extras --locked mypy
 uv run --all-extras --locked pytest
-
+cargo doc --no-deps --all-features --locked
+cargo metadata --locked --format-version 1 --no-deps >/dev/null
+uv lock --check
+test "$(git -C tests/data rev-parse HEAD)" = \
+    "e1120013c4b5cbc830b958b2b7e73fba444d316d"

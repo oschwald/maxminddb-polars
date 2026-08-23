@@ -72,10 +72,9 @@ type = "both"
 include = ["**/*.md", "**/*.yml", "**/*.yaml"]
 invoke = "once"
 path-args = "file"
-cmd = ["prettier"]
+cmd = ["node_modules/.bin/prettier"]
 lint-flags = "--check"
 tidy-flags = "--write"
 ok-exit-codes = [0]
 lint-failure-exit-codes = [1]
 expect-stderr = true
-

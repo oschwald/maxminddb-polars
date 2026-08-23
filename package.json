@@ -1,0 +1,10 @@
+{
+  "name": "maxminddb-polars-development",
+  "private": true,
+  "scripts": {
+    "format:check": "prettier --check \"**/*.md\" \"**/*.yml\" \"**/*.yaml\""
+  },
+  "devDependencies": {
+    "prettier": "3.9.6"
+  }
+}
