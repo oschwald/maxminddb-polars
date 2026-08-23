@@ -10,6 +10,7 @@ or publishing changes.
 - Repository name: `maxminddb-polars`
 - Visibility: public
 - Default branch: `main`
+- Settings last verified: 2026-08-23
 - License: ISC
 - Rust release toolchain: 1.96.0
 - Python floor: 3.10
@@ -23,29 +24,44 @@ crates.io, npm, or `oschwald` GitHub. These observations do not reserve names.
 
 ## GitHub checklist
 
-- [ ] `main` is the default branch and Issues are enabled.
-- [ ] Dependency graph, Dependabot alerts, and security updates are enabled.
-- [ ] Private vulnerability reporting is enabled.
-- [ ] Secret scanning and push protection are enabled when available.
-- [ ] Code scanning is enabled and the CodeQL workflow is green.
-- [ ] The default Actions token permission is read-only.
-- [ ] Workflows cannot approve pull requests.
-- [ ] `main` blocks force pushes and deletion and requires pull requests.
-- [ ] Stable lint, Rust test, Python smoke, and artifact-metadata checks are required.
-- [ ] A `v*` tag ruleset blocks tag updates and deletion.
-- [ ] Artifact retention is long enough to diagnose release failures.
-- [ ] Allowed merge methods are recorded here after review.
+- [x] `main` is the default branch and Issues are enabled.
+- [x] Dependency graph, Dependabot alerts, and security updates are enabled.
+- [x] Private vulnerability reporting is enabled.
+- [x] Secret scanning and push protection are enabled.
+- [x] Code scanning is enabled and the CodeQL workflow is green.
+- [x] The default Actions token permission is read-only.
+- [x] Workflows cannot approve pull requests.
+- [x] `main` blocks force pushes and deletion and requires pull requests.
+- [x] Stable lint, Rust test, Python smoke, and distribution checks are required.
+- [x] A `v*` tag ruleset blocks tag updates and deletion.
+- [x] Workflow artifacts are retained for 30 days.
+- [x] Merge, squash, and rebase merges are allowed; merged branches are deleted.
+
+The `main` protection rule requires one approving review, resolved
+conversations, an up-to-date branch, and these status checks:
+
+- `Clippy`
+- `Metadata and locks`
+- `Prettier`
+- `Python`
+- `Rustfmt`
+- `Rust unit tests`
+- `Python 3.10 on ubuntu-latest`
+- `Validate distributions`
+
+Repository administrators retain a recovery bypass. Force pushes and branch
+deletion remain disabled for everyone.
 
 ## Publishing checklist
 
-- [ ] A protected `pypi` environment exists with no long-lived upload token.
+- [x] A `pypi` environment accepts only `v*` tags and has no upload token.
 - [ ] The pending PyPI Trusted Publisher uses owner `oschwald`.
 - [ ] Its repository is `maxminddb-polars`.
 - [ ] Its workflow is `release.yml`.
 - [ ] Its environment is `pypi`.
 - [ ] Its PyPI project name is `maxminddb-polars`.
 - [ ] Maintainer accounts have two-factor authentication and recovery access.
-- [ ] A no-publish artifact and release rehearsal has passed.
+- [x] A no-publish artifact and release rehearsal has passed.
 
 The pending publisher does not reserve the PyPI project name. Do not publish an
 empty placeholder release.
