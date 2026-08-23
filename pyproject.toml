@@ -51,9 +51,15 @@ dev = [
 ]
 
 [tool.maturin]
+exclude = [{ path = "tests/data/**", format = "sdist" }]
 features = ["extension-module"]
+locked = true
 module-name = "maxminddb_polars._maxminddb_polars"
 python-source = "."
+
+[tool.maturin.sbom]
+auditwheel = true
+rust = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
@@ -62,7 +68,7 @@ addopts = "--import-mode=importlib"
 [tool.mypy]
 python_version = "3.10"
 strict = true
-files = ["maxminddb_polars", "tests/python"]
+files = ["maxminddb_polars", "scripts", "tests/python"]
 
 [tool.ruff]
 target-version = "py310"
@@ -77,4 +83,3 @@ cache-keys = [
     { file = "Cargo.toml" },
     { file = "**/*.rs" },
 ]
-
