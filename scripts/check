@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -euo pipefail
+
+uv sync --all-extras --locked
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo test --locked
+uv run --all-extras --locked ruff check .
+uv run --all-extras --locked ruff format --check .
+uv run --all-extras --locked mypy
+uv run --all-extras --locked pytest
+

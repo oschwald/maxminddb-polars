@@ -59,4 +59,3 @@ plugin symbols, a JSON API, or a separate multi-path operation in `0.1`.
 output projection provides near-parity in every supported execution mode. The
 Rust engine will keep one internal projection representation so path lookup,
 partial Struct lookup, and a future optimizer integration share implementation.
-
