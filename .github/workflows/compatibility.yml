@@ -1,0 +1,50 @@
+name: Compatibility
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "31 16 1 * *"
+  pull_request:
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/compatibility.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compatibility-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  supported:
+    name: Python ${{ matrix.python }} / Polars ${{ matrix.polars }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      POLARS_VERSION: ${{ matrix.polars }}
+      PYTHON_VERSION: ${{ matrix.python }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.14"]
+        polars: ["1.43.0", "1.43.2"]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # master
+        with:
+          toolchain: stable
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - run: uv sync --python "$PYTHON_VERSION" --all-extras --locked
+      - run: uv pip install --python .venv/bin/python "polars==$POLARS_VERSION"
+      - run: uv run --no-sync maturin develop
+      - run: uv run --no-sync pytest

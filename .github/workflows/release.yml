@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release state
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Read and validate version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
+          test -n "$version"
+          if [[ "$EVENT_NAME" == "release" ]]; then
+            test "$RELEASE_TAG" = "v$version"
+            test "$version" != "0.0.0"
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+      - name: Verify clean source metadata
+        run: |
+          cargo metadata --locked --format-version 1 --no-deps >/dev/null
+          git diff --exit-code
+
+  artifacts:
+    name: Build and validate artifacts
+    needs: validate
+    uses: ./.github/workflows/artifacts.yml
+    permissions:
+      contents: read
+
+  publish:
+    name: Publish to PyPI
+    if: github.event_name == 'release'
+    needs: [validate, artifacts]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/p/maxminddb-polars
+    permissions:
+      # Authenticate to PyPI through OpenID Connect trusted publishing.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: publishable-distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: dist
+
+  verify-publish:
+    name: Verify published package
+    if: github.event_name == 'release'
+    needs: [validate, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678e61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Install published version
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: python -m pip install "maxminddb-polars==$VERSION"
+      - name: Smoke-test published wheel
+        run: |
+          python - <<'PY'
+          import polars as pl
+
+          from maxminddb_polars._internal import identity
+
+          result = pl.DataFrame({"value": ["127.0.0.1"]}).select(identity("value"))
+          assert result.to_dict(as_series=False) == {"value": ["127.0.0.1"]}
+          PY

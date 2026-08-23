@@ -68,7 +68,7 @@ addopts = "--import-mode=importlib"
 [tool.mypy]
 python_version = "3.10"
 strict = true
-files = ["maxminddb_polars", "scripts", "tests/python"]
+files = ["benchmarks", "maxminddb_polars", "scripts", "tests/python"]
 
 [tool.ruff]
 target-version = "py310"
