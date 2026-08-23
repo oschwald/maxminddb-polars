@@ -1,5 +1,12 @@
 use polars::prelude::*;
+use pyo3::prelude::*;
 use pyo3_polars::derive::polars_expr;
+
+#[pymodule]
+fn _maxminddb_polars(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    Ok(())
+}
 
 #[polars_expr(output_type=String)]
 fn identity(inputs: &[Series]) -> PolarsResult<Series> {
