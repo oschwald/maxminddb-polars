@@ -56,11 +56,14 @@ PyO3 0.28 is currently required by the Polars 1.43-compatible
 `pyo3-polars`/Rust Polars pair. `cargo audit` temporarily ignores these
 advisories in `.cargo/audit.toml`:
 
+- `RUSTSEC-2025-0141`: unmaintained `bincode` 2.0.1 is a transitive dependency
+  of Rust Polars 0.54.
 - `RUSTSEC-2026-0176`: the project does not call `nth` or `nth_back` on PyO3
   list or tuple iterators.
 - `RUSTSEC-2026-0177`: the project does not construct `PyCFunction` closures.
 
-The fixes require PyO3 0.29, which in turn requires pyo3-polars 0.28 and Rust
-Polars 0.55. Re-evaluate both exceptions with that coordinated compatibility
-update, or by 2026-09-30, whichever comes first. The corresponding Dependabot
-alerts remain open so the exceptions stay visible.
+The PyO3 fixes require PyO3 0.29, which in turn requires pyo3-polars 0.28 and
+Rust Polars 0.55; that Polars update also removes the current `bincode`
+dependency. Re-evaluate all three exceptions with that coordinated
+compatibility update, or by 2026-09-30, whichever comes first. The
+corresponding Dependabot alerts remain open so the exceptions stay visible.
