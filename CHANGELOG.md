@@ -10,3 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Initialized the standalone Rust/Python Polars expression-plugin project.
+- Added scalar `lookup_path` expressions and the `.mmdb.lookup_path` namespace.
+- Added known City/ASN dtype inference, explicit scalar dtypes for custom MMDBs,
+  strictness controls, offset deduplication, and generation-safe reader caching.

@@ -1,6 +1,9 @@
-"""Polars expressions for MaxMind DB lookups.
+"""Polars expressions for MaxMind DB lookups."""
 
-The public lookup API is under active development and is not exposed yet.
-"""
+from importlib.metadata import version
 
-__all__: list[str] = []
+from maxminddb_polars._api import lookup_path
+
+__version__ = version("maxminddb-polars")
+
+__all__ = ["__version__", "lookup_path"]

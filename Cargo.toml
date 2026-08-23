@@ -20,8 +20,19 @@ extension-module = ["pyo3/extension-module"]
 
 [dependencies]
 maxminddb = { version = "=0.30.0", features = ["simdutf8"] }
-polars = { version = "=0.54.4", default-features = false }
+polars = { version = "=0.54.4", default-features = false, features = [
+    "dtype-i8",
+    "dtype-i16",
+    "dtype-i128",
+    "dtype-struct",
+    "dtype-u8",
+    "dtype-u16",
+    "dtype-u128",
+] }
 pyo3 = { version = "=0.28.3", features = ["abi3-py310"] }
-pyo3-polars = { version = "=0.27.0", features = ["derive"] }
+pyo3-polars = { version = "=0.27.0", features = ["derive", "dtype-struct"] }
 serde = { version = "1", features = ["derive"] }
 
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"
