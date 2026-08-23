@@ -5,6 +5,9 @@ exclude = [
   ".ruff_cache/**/*",
   ".venv/**/*",
   "dist/**/*",
+  "fuzz/artifacts/**/*",
+  "fuzz/coverage/**/*",
+  "fuzz/target/**/*",
   "target/**/*",
   "tests/data/**/*",
 ]

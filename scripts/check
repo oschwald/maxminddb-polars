@@ -2,13 +2,21 @@
 
 set -euo pipefail
 
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
 uv sync --all-extras --locked
 npm clean-install --ignore-scripts
 precious lint --all
+cargo fmt --manifest-path fuzz/Cargo.toml --all -- --check
 cargo test --locked
+CARGO_TARGET_DIR="$repo_root/target" \
+    cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings
 uv run --all-extras --locked pytest
 cargo doc --no-deps --all-features --locked
 cargo metadata --locked --format-version 1 --no-deps >/dev/null
+cargo metadata --manifest-path fuzz/Cargo.toml --locked --format-version 1 --no-deps \
+    >/dev/null
 uv lock --check
 test "$(git -C tests/data rev-parse HEAD)" = \
     "e1120013c4b5cbc830b958b2b7e73fba444d316d"

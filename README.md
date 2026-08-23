@@ -62,6 +62,7 @@ Documentation:
 - [Custom and partial schemas](docs/custom-schemas.md)
 - [Installation and compatibility](docs/compatibility.md)
 - [Performance and benchmarks](docs/performance.md)
+- [Security testing](docs/security-testing.md)
 
 ## Project policies
 

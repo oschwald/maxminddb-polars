@@ -431,9 +431,13 @@ fn value_at_path<'a>(mut value: &'a Value<'a>, path: &[&str]) -> Option<&'a Valu
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
     use std::fs;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::path::Path;
     use std::time::UNIX_EPOCH;
+
+    use proptest::prelude::*;
 
     use super::*;
 
@@ -505,5 +509,163 @@ mod tests {
             lookup_batch(ips.str().unwrap(), &reader, &kwargs.database, kwargs.strict).unwrap();
         assert_eq!(batch.unique.len(), 1);
         assert_eq!(batch.rows, vec![Some(0), Some(0)]);
+    }
+
+    fn collect_corrupt_fixtures() -> Vec<std::path::PathBuf> {
+        let mut fixtures = Vec::new();
+        for directory in [
+            "tests/data/bad-data/libmaxminddb",
+            "tests/data/bad-data/maxminddb-golang",
+            "tests/data/bad-data/maxminddb-python",
+            "tests/data/test-data",
+        ] {
+            for entry in fs::read_dir(directory).unwrap() {
+                let path = entry.unwrap().path();
+                let file_name = path.file_name().unwrap().to_string_lossy();
+                let normalized_name = file_name.to_ascii_lowercase();
+                if path
+                    .extension()
+                    .is_some_and(|extension| extension == "mmdb")
+                    && (directory.contains("bad-data")
+                        || normalized_name.contains("broken")
+                        || normalized_name.contains("invalid"))
+                {
+                    fixtures.push(path);
+                }
+            }
+        }
+        fixtures.sort();
+        fixtures
+    }
+
+    #[test]
+    fn corrupt_fixtures_return_results_without_panicking() {
+        let fixtures = collect_corrupt_fixtures();
+        assert_eq!(
+            fixtures.len(),
+            25,
+            "expected the complete corruption corpus"
+        );
+        for database in fixtures {
+            let outcome = catch_unwind(AssertUnwindSafe(|| {
+                let kwargs = LookupPathKwargs {
+                    database: identity(database.to_str().unwrap()),
+                    path: vec![
+                        PathPart::Key("country".to_owned()),
+                        PathPart::Key("iso_code".to_owned()),
+                    ],
+                    dtype: Some(SchemaSpec::String),
+                    strict: false,
+                };
+                let _ = lookup_path_series(&[series(&[Some("1.1.1.1")])], &kwargs);
+            }));
+            assert!(outcome.is_ok(), "fixture panicked: {}", database.display());
+        }
+    }
+
+    fn projected_schema() -> SchemaSpec {
+        SchemaSpec::Struct {
+            fields: vec![
+                crate::schema::SchemaField {
+                    name: "label".to_owned(),
+                    dtype: SchemaSpec::String,
+                },
+                crate::schema::SchemaField {
+                    name: "nested".to_owned(),
+                    dtype: SchemaSpec::Struct {
+                        fields: vec![crate::schema::SchemaField {
+                            name: "values".to_owned(),
+                            dtype: SchemaSpec::List {
+                                inner: Box::new(SchemaSpec::UInt32),
+                            },
+                        }],
+                    },
+                },
+            ],
+        }
+    }
+
+    fn projected_value(label: &'static str, values: Vec<u32>) -> Value<'static> {
+        Value::Map(vec![
+            (Cow::Borrowed("label"), Value::String(Cow::Borrowed(label))),
+            (
+                Cow::Borrowed("nested"),
+                Value::Map(vec![(
+                    Cow::Borrowed("values"),
+                    Value::List(values.into_iter().map(Value::UInt32).collect()),
+                )]),
+            ),
+        ])
+    }
+
+    proptest! {
+        #[test]
+        fn optimized_gather_matches_the_row_wise_reference(
+            rows in prop::collection::vec(prop::option::of(0usize..3), 0..512)
+        ) {
+            let unique_values = vec![
+                Some(projected_value("first", vec![1, 2, 3])),
+                None,
+                Some(projected_value("second", vec![])),
+            ];
+            let schema = projected_schema();
+            let optimized = decoded_values_to_series(
+                "record".into(),
+                &unique_values,
+                &rows,
+                &schema,
+            ).unwrap();
+            let gathered = rows
+                .iter()
+                .map(|row| row.and_then(|index| unique_values[index].clone()))
+                .collect();
+            let reference = values_to_series("record".into(), &schema, gathered).unwrap();
+
+            prop_assert!(optimized.equals_missing(&reference));
+        }
+
+        #[test]
+        fn random_null_and_duplicate_inputs_match_direct_lookups(
+            choices in prop::collection::vec(0u8..8, 0..256)
+        ) {
+            let candidates = [
+                Some("89.160.20.128"),
+                Some("89.160.20.129"),
+                Some("203.0.113.1"),
+                Some("2001:db8::1"),
+                Some("not-an-ip"),
+                Some("999.1.1.1"),
+                Some(""),
+                None,
+            ];
+            let inputs = choices
+                .iter()
+                .map(|choice| candidates[usize::from(*choice)])
+                .collect::<Vec<_>>();
+            let output = lookup_path_series(&[series(&inputs)], &kwargs(false)).unwrap();
+            let reader = reader_for(&kwargs(false).database).unwrap();
+            let path = [
+                maxminddb::PathElement::Key("country"),
+                maxminddb::PathElement::Key("iso_code"),
+            ];
+            let expected = inputs
+                .iter()
+                .map(|value| {
+                    value
+                        .and_then(|value| value.parse::<IpAddr>().ok())
+                        .and_then(|ip| reader.lookup(ip).ok())
+                        .and_then(|result| result.decode_path::<&str>(&path).ok().flatten())
+                        .map(str::to_owned)
+                })
+                .collect::<Vec<_>>();
+
+            prop_assert_eq!(output.str().unwrap().iter().map(|value| value.map(str::to_owned)).collect::<Vec<_>>(), expected);
+        }
+
+        #[test]
+        fn arbitrary_path_indexes_never_panic(index in any::<i64>()) {
+            let path = [PathPart::Index(index)];
+            let _ = to_mmdb_path(&path);
+        }
     }
 }

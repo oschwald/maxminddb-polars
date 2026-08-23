@@ -12,6 +12,8 @@ use serde::{Deserialize, Deserializer};
 
 use crate::schema::{SchemaField, SchemaSpec};
 
+const INITIAL_CONTAINER_CAPACITY_LIMIT: usize = 4_096;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value<'a> {
     Null,
@@ -165,7 +167,12 @@ impl<'de> Visitor<'de> for ProjectedListVisitor<'_> {
     where
         A: SeqAccess<'de>,
     {
-        let mut values = Vec::with_capacity(sequence.size_hint().unwrap_or(0));
+        let mut values = Vec::with_capacity(
+            sequence
+                .size_hint()
+                .unwrap_or(0)
+                .min(INITIAL_CONTAINER_CAPACITY_LIMIT),
+        );
         while let Some(value) = sequence.next_element_seed(SchemaSeed(self.inner))? {
             values.push(value);
         }
@@ -311,7 +318,12 @@ impl<'de> Visitor<'de> for ValueVisitor {
     where
         A: SeqAccess<'de>,
     {
-        let mut values = Vec::with_capacity(sequence.size_hint().unwrap_or(0));
+        let mut values = Vec::with_capacity(
+            sequence
+                .size_hint()
+                .unwrap_or(0)
+                .min(INITIAL_CONTAINER_CAPACITY_LIMIT),
+        );
         while let Some(value) = sequence.next_element()? {
             values.push(value);
         }
@@ -322,7 +334,11 @@ impl<'de> Visitor<'de> for ValueVisitor {
     where
         A: MapAccess<'de>,
     {
-        let mut values = Vec::with_capacity(map.size_hint().unwrap_or(0));
+        let mut values = Vec::with_capacity(
+            map.size_hint()
+                .unwrap_or(0)
+                .min(INITIAL_CONTAINER_CAPACITY_LIMIT),
+        );
         while let Some((key, value)) = map.next_entry::<Cow<'de, str>, Value<'de>>()? {
             values.push((key, value));
         }

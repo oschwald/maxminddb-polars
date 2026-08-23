@@ -1,0 +1,1 @@
+{"schema":{"type":"struct","fields":[{"name":"country","dtype":{"type":"struct","fields":[{"name":"iso_code","dtype":{"type":"string"}}]}},{"name":"subdivisions","dtype":{"type":"list","inner":{"type":"struct","fields":[{"name":"iso_code","dtype":{"type":"string"}}]}}}]},"path":["subdivisions",-1,"iso_code"]}

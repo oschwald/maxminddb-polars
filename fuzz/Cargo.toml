@@ -1,0 +1,43 @@
+[package]
+name = "maxminddb-polars-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+maxminddb_polars = { package = "maxminddb-polars", path = "..", features = ["fuzzing"] }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "kwargs_deserialization"
+path = "fuzz_targets/kwargs_deserialization.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "path_traversal"
+path = "fuzz_targets/path_traversal.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "projected_value"
+path = "fuzz_targets/projected_value.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "malformed_database"
+path = "fuzz_targets/malformed_database.rs"
+test = false
+doc = false
+bench = false

@@ -26,6 +26,7 @@ jobs:
           toolchain: stable
           components: rustfmt
       - run: cargo fmt --all -- --check
+      - run: cargo fmt --manifest-path fuzz/Cargo.toml --all -- --check
 
   clippy:
     name: Clippy
@@ -40,6 +41,9 @@ jobs:
           toolchain: stable
           components: clippy
       - run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - run: >-
+          cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --locked --
+          -D warnings
 
   python:
     name: Python
@@ -86,6 +90,9 @@ jobs:
           toolchain: stable
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - run: cargo metadata --locked --format-version 1 --no-deps >/dev/null
+      - run: >-
+          cargo metadata --manifest-path fuzz/Cargo.toml --locked
+          --format-version 1 --no-deps >/dev/null
       - run: uv lock --check
       - run: test "$(git -C tests/data rev-parse HEAD)" = "e1120013c4b5cbc830b958b2b7e73fba444d316d"
       - run: git diff --exit-code
