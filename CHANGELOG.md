@@ -27,5 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Updated `maxminddb` to 0.30.1, which reports malformed extended data types as
+  decoder errors instead of panicking on integer overflow.
 - Set the supported Polars floor to 1.43.2 because the 1.43.0 and 1.43.1
   distributions are yanked on PyPI.
