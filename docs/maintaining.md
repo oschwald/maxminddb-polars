@@ -10,7 +10,7 @@ or publishing changes.
 - Repository name: `maxminddb-polars`
 - Visibility: public
 - Default branch: `main`
-- Settings last verified: 2026-08-23
+- Settings last verified: 2026-08-24
 - License: ISC
 - Rust release toolchain: 1.96.0
 - Python floor: 3.10
@@ -59,18 +59,19 @@ deletion remain disabled for everyone.
 
 - [x] A `pypi` environment accepts only `v*` tags and has no upload token.
 - [x] A `release` environment accepts only `v*` tags and has no upload token.
-- [x] The pending PyPI Trusted Publisher uses owner `oschwald`.
+- [x] The PyPI Trusted Publisher uses owner `oschwald`.
 - [x] Its repository is `maxminddb-polars`.
 - [x] Its workflow is `release.yml`.
 - [x] Its environment is `pypi`.
 - [x] Its PyPI project name is `maxminddb-polars`.
-- [ ] The crates.io trusted publisher uses owner `oschwald`, repository
+- [x] The crates.io trusted publisher uses owner `oschwald`, repository
       `maxminddb-polars`, workflow `release.yml`, and environment `release`.
 - [ ] Maintainer accounts have two-factor authentication and recovery access.
 - [x] A no-publish artifact and release rehearsal has passed.
 
-The pending publisher does not reserve the PyPI project name. Do not publish an
-empty placeholder release.
+The `0.1.0` release allocated the `maxminddb-polars` project name on both PyPI
+and crates.io. Both registries publish subsequent releases from `release.yml`
+with short-lived OIDC credentials.
 
 ## Temporary security exceptions
 
