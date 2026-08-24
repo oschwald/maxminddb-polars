@@ -27,6 +27,14 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 4
+    groups:
+      python-dev-tools:
+        patterns:
+          - maturin
+          - mypy
+          - pytest
+          - ruff
+          - twine
 
   - package-ecosystem: github-actions
     directory: /
@@ -37,6 +45,10 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 4
+    groups:
+      github-actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: npm
     directory: /
