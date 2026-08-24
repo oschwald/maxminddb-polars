@@ -73,7 +73,7 @@ Documentation:
 - [Performance and benchmarks](https://github.com/oschwald/maxminddb-polars/blob/main/docs/performance.md)
 - [Competitor comparison](https://github.com/oschwald/maxminddb-polars/blob/main/docs/comparison.md)
 - [Security testing](https://github.com/oschwald/maxminddb-polars/blob/main/docs/security-testing.md)
-- [Release readiness](https://github.com/oschwald/maxminddb-polars/blob/main/docs/release-readiness.md)
+- [0.1 release record](https://github.com/oschwald/maxminddb-polars/blob/main/docs/release-readiness.md)
 
 ## Project policies
 

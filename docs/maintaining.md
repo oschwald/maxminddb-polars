@@ -1,8 +1,8 @@
 # Maintainer operations
 
 This file records repository settings that cannot be enforced by committed
-files. Re-audit every item before the first public release and after ownership
-or publishing changes.
+files. Re-audit every item before a public release and after ownership or
+publishing changes.
 
 ## Bootstrap record
 
@@ -15,7 +15,7 @@ or publishing changes.
 - Rust release toolchain: 1.96.0
 - Python floor: 3.10
 - Python Polars range: 1.43.x
-- Rust Polars/pyo3-polars: 0.54.4/0.27.0
+- Rust Polars/pyo3-polars/PyO3: 0.55.2/0.28.0/0.29.2
 - maxminddb: 0.30.1
 - MaxMind-DB fixture commit: `e1120013c4b5cbc830b958b2b7e73fba444d316d`
 
@@ -69,28 +69,27 @@ deletion remain disabled for everyone.
 - [ ] Maintainer accounts have two-factor authentication and recovery access.
 - [x] A no-publish artifact and release rehearsal has passed.
 
+Account-level two-factor authentication and recovery access cannot be verified
+through the repository API; a maintainer must confirm that item manually before
+each release.
+
 The `0.1.0` release allocated the `maxminddb-polars` project name on both PyPI
 and crates.io. Both registries publish subsequent releases from `release.yml`
 with short-lived OIDC credentials.
 
 ## Temporary security exceptions
 
-PyO3 0.28 is currently required by the Polars 1.43-compatible
-`pyo3-polars`/Rust Polars pair. `cargo audit` temporarily ignores these
-advisories in `.cargo/audit.toml`:
+`cargo audit` temporarily ignores these transitive advisories in
+`.cargo/audit.toml`:
 
 - `RUSTSEC-2025-0141`: unmaintained `bincode` 2.0.1 is a transitive dependency
-  of Rust Polars 0.54.
-- `RUSTSEC-2026-0176`: the project does not call `nth` or `nth_back` on PyO3
-  list or tuple iterators.
-- `RUSTSEC-2026-0177`: the project does not construct `PyCFunction` closures.
+  of Rust Polars 0.55 and has no patched release.
 - `RUSTSEC-2026-0194` and `RUSTSEC-2026-0195`: `quick-xml` is locked only
   through the disabled cloud features of Polars' `object_store`; it is absent
   from every built target (`cargo tree --target all -i quick-xml`) and the
   plugin does not parse XML.
 
-The PyO3 fixes require PyO3 0.29, which in turn requires pyo3-polars 0.28 and
-Rust Polars 0.55; that Polars update also removes the current `bincode`
-dependency. Re-evaluate all five exception IDs with that coordinated
-compatibility update, or by 2026-09-30, whichever comes first. The
-corresponding Dependabot alerts remain open so the exceptions stay visible.
+Re-evaluate these three exception IDs with the next coordinated Polars update,
+or by 2026-09-30, whichever comes first. The `0.1.2` update to PyO3 0.29.2
+resolved `RUSTSEC-2026-0176` and `RUSTSEC-2026-0177`; those exceptions and the
+corresponding Dependabot alerts are closed.
