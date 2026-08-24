@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Updated the Rust Polars/PyO3 compatibility stack to Polars 0.55 and PyO3
+  0.29, resolving the PyO3 iterator-bounds and closure thread-safety
+  advisories.
+
 ## [0.1.1] - 2026-08-24
 
 ### Fixed

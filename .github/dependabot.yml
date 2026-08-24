@@ -9,13 +9,16 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 4
+    # These direct dependencies form one ABI-sensitive compatibility stack.
     groups:
       polars-rust:
         patterns:
           - polars
+          - polars-arrow
+          - pyo3
           - pyo3-polars
 
-  - package-ecosystem: pip
+  - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly
