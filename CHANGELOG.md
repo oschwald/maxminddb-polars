@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Made README documentation and policy links work when rendered on PyPI.
+- Prevented the release verification checkout from shadowing the installed
+  wheel.
 
 ## [0.1.0] - 2026-08-23
 

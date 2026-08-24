@@ -176,20 +176,23 @@ jobs:
       - name: Install published version
         env:
           VERSION: ${{ needs.validate.outputs.version }}
-        run: python -m pip install "maxminddb-polars==$VERSION"
+        run: python -m pip install --only-binary maxminddb-polars "maxminddb-polars==$VERSION"
       - name: Smoke-test published wheel
+        working-directory: ${{ runner.temp }}
         run: |
-          python - <<'PY'
+          python -I - <<'PY'
           import os
           from pathlib import Path
 
           import polars as pl
+          import maxminddb_polars
 
-          from maxminddb_polars import lookup_path
-
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          module = Path(maxminddb_polars.__file__).resolve()
+          assert not module.is_relative_to(workspace), f"imported checkout source: {module}"
           database = Path(os.environ["GITHUB_WORKSPACE"]) / "tests/data/test-data/GeoIP2-City-Test.mmdb"
           result = pl.DataFrame({"ip": ["89.160.20.128"]}).select(
-              lookup_path("ip", database, ["country", "iso_code"]).alias("country")
+              maxminddb_polars.lookup_path("ip", database, ["country", "iso_code"]).alias("country")
           )
           assert result.to_dict(as_series=False) == {"country": ["SE"]}
           PY
