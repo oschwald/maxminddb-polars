@@ -94,6 +94,7 @@ jobs:
         shell: bash
         run: |
           status=$(curl --silent --show-error --location \
+            --connect-timeout 10 --max-time 30 \
             --user-agent "maxminddb-polars-release/$VERSION (https://github.com/oschwald/maxminddb-polars)" \
             --output /dev/null --write-out '%{http_code}' \
             "https://crates.io/api/v1/crates/maxminddb-polars/$VERSION")
@@ -123,8 +124,9 @@ jobs:
           VERSION: ${{ needs.validate.outputs.version }}
         shell: bash
         run: |
-          for attempt in {1..30}; do
+          for ((attempt = 0; attempt < 30; attempt++)); do
             status=$(curl --silent --show-error --location \
+              --connect-timeout 10 --max-time 30 \
               --user-agent "maxminddb-polars-release/$VERSION (https://github.com/oschwald/maxminddb-polars)" \
               --output /dev/null --write-out '%{http_code}' \
               "https://crates.io/api/v1/crates/maxminddb-polars/$VERSION")

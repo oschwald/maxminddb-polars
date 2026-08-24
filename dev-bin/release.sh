@@ -111,14 +111,15 @@ if $publish; then
     fi
 
     cargo publish --dry-run --locked
-    project_status=$(curl --silent --show-error --location --output /dev/null \
+    project_status=$(curl --silent --show-error --location \
+        --connect-timeout 10 --max-time 30 --output /dev/null \
         --write-out '%{http_code}' \
         --user-agent "maxminddb-polars-release/$version (https://github.com/oschwald/maxminddb-polars)" \
         https://crates.io/api/v1/crates/maxminddb-polars)
     if [[ "$project_status" == "404" ]]; then
         echo "The first crates.io version requires the local Cargo API token."
         read -r -p "Bootstrap maxminddb-polars $version on crates.io? [y/N] " answer
-        if [[ "$answer" != "y" ]]; then
+        if [[ ! "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
             echo "Aborting before any release was created."
             exit 1
         fi
@@ -134,7 +135,7 @@ if $publish; then
     printf '%s\n' "$notes"
     echo
     read -r -p "Create GitHub release $tag and start publication? [y/N] " answer
-    if [[ "$answer" != "y" ]]; then
+    if [[ ! "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
         echo "Stopping before the GitHub release was created."
         exit 1
     fi
@@ -217,7 +218,7 @@ if $dry_run; then
 fi
 
 read -r -p "Create the release-preparation commit and push this branch? [y/N] " answer
-if [[ "$answer" != "y" ]]; then
+if [[ ! "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
     echo "Leaving the validated release changes in the working tree."
     exit 1
 fi
