@@ -1,6 +1,7 @@
 //! Entry points used only by the out-of-tree `cargo-fuzz` harnesses.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use maxminddb::Reader;
 use serde::Deserialize;
@@ -18,8 +19,14 @@ const MAX_FUZZ_INPUT_BYTES: usize = 8 * 1024 * 1024;
 /// outer target boundary still aborts on any panic that escapes this crate, so
 /// replacing the hook does not hide unrelated fuzz failures.
 pub fn initialize_panic_hook() {
+    static REPORTED: AtomicBool = AtomicBool::new(false);
+
     drop(std::panic::take_hook());
-    std::panic::set_hook(Box::new(|panic_info| eprintln!("{panic_info}")));
+    std::panic::set_hook(Box::new(|panic_info| {
+        if !REPORTED.swap(true, Ordering::Relaxed) {
+            eprintln!("contained parser panic (further reports suppressed): {panic_info}");
+        }
+    }));
 }
 
 #[derive(Deserialize)]
