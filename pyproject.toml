@@ -44,10 +44,10 @@ test = ["pytest>=9"]
 [dependency-groups]
 dev = [
     "maturin>=1.14,<1.15",
-    "mypy>=1.19,<2",
+    "mypy>=1.19,<3",
     "pytest>=9,<10",
-    "ruff>=0.15,<0.16",
-    "twine>=6,<7",
+    "ruff>=0.15,<0.17",
+    "twine>=6,<8",
 ]
 
 [tool.maturin]

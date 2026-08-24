@@ -25,6 +25,7 @@ def lookup(
     strict: bool = True,
 ) -> pl.Expr: ...
 
+
 def lookup_path(
     expr: IntoExpr,
     database: str | Path,
