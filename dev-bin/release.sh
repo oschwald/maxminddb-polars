@@ -188,6 +188,7 @@ if ! $dry_run; then
     perl -0pi -e \
         's/^version = "[^"]+"/version = "'"$version"'"/m' Cargo.toml
     cargo check
+    cargo check --manifest-path fuzz/Cargo.toml
 fi
 
 scripts/check
@@ -221,7 +222,7 @@ if [[ "$answer" != "y" ]]; then
     exit 1
 fi
 
-git add Cargo.toml Cargo.lock README.md CHANGELOG.md
+git add Cargo.toml Cargo.lock fuzz/Cargo.lock README.md CHANGELOG.md
 git commit -m "Prepare $tag release"
 git push --set-upstream origin "$branch"
 
