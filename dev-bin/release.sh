@@ -203,7 +203,7 @@ uv run --no-sync twine check --strict "$artifact_dir"/*
 
 echo
 echo "Release diff:"
-git diff -- Cargo.toml Cargo.lock README.md CHANGELOG.md
+git diff -- Cargo.toml Cargo.lock fuzz/Cargo.lock README.md CHANGELOG.md
 echo
 echo "Release notes:"
 printf '%s\n' "$notes"
