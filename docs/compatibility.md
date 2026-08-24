@@ -7,6 +7,9 @@ range is intentionally narrow because a native expression plugin must match
 Polars' plugin ABI. A future Polars minor will be added only after source and
 built-wheel tests pass.
 
+The supported Python interval refers to standard GIL-enabled CPython builds.
+Free-threaded CPython builds such as `cp314t` are not currently built or tested.
+
 Release artifacts are configured as `abi3-py310` wheels for:
 
 - manylinux x86-64 and AArch64;

@@ -87,7 +87,8 @@ update local `main`, and start the release from the verified merge commit with:
 dev-bin/release.sh --publish
 ```
 
-The first crates.io publication requires a local API token to establish crate
-ownership. Configure its trusted publisher for `release.yml` and the `release`
-GitHub environment immediately afterward; subsequent releases use short-lived
-OIDC credentials. PyPI publication uses its separate `pypi` environment.
+Both registry projects are established. The `release.yml` workflow publishes
+to crates.io and PyPI with short-lived OIDC credentials through the `release`
+and `pypi` environments, respectively; normal releases do not use local upload
+tokens. The helper retains a guarded token-based bootstrap path only for a new
+registry project.

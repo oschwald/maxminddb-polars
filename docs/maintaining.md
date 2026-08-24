@@ -1,8 +1,8 @@
 # Maintainer operations
 
 This file records repository settings that cannot be enforced by committed
-files. Re-audit every item before the first public release and after ownership
-or publishing changes.
+files. Re-audit every item before a public release and after ownership or
+publishing changes.
 
 ## Bootstrap record
 
@@ -15,7 +15,7 @@ or publishing changes.
 - Rust release toolchain: 1.96.0
 - Python floor: 3.10
 - Python Polars range: 1.43.x
-- Rust Polars/pyo3-polars: 0.54.4/0.27.0
+- Rust Polars/pyo3-polars/PyO3: 0.55.2/0.28.0/0.29.2
 - maxminddb: 0.30.1
 - MaxMind-DB fixture commit: `e1120013c4b5cbc830b958b2b7e73fba444d316d`
 
@@ -68,6 +68,10 @@ deletion remain disabled for everyone.
       `maxminddb-polars`, workflow `release.yml`, and environment `release`.
 - [ ] Maintainer accounts have two-factor authentication and recovery access.
 - [x] A no-publish artifact and release rehearsal has passed.
+
+Account-level two-factor authentication and recovery access cannot be verified
+through the repository API; a maintainer must confirm that item manually before
+each release.
 
 The `0.1.0` release allocated the `maxminddb-polars` project name on both PyPI
 and crates.io. Both registries publish subsequent releases from `release.yml`
