@@ -2,13 +2,19 @@
 
 Fast Polars expressions for MaxMind DB lookups, implemented in Rust.
 
-> [!WARNING]
-> This project is pre-release. Its public API and compatibility policy are
-> still being implemented and may change before `0.1.0`.
+The Python API follows Semantic Versioning beginning with `0.1.0`. The
+similarly named crates.io package is the native implementation used to build
+the Python plugin; it does not currently expose a supported Rust API.
 
 The package provides nested whole-record lookups for recognized MaxMind DB
 schemas and selective path lookups for efficient enrichment. Callers supply
 their own licensed or GeoLite database; no database is bundled or downloaded.
+
+Install it from PyPI with:
+
+```console
+python -m pip install maxminddb-polars
+```
 
 ```python
 from pathlib import Path

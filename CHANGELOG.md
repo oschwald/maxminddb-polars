@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   containment for corrupt input that triggers upstream parser failures.
 - Added API, compatibility, performance, comparison, and security-testing
   documentation and froze the public `0.1` API.
+- Added crates.io packaging and OIDC trusted publishing for the native
+  implementation crate.
 
 ### Changed
 

@@ -9,5 +9,6 @@ Include reproduction steps, affected versions, impact, and any proposed
 mitigation. Maintainers will acknowledge reports as soon as practical and will
 coordinate disclosure after a fix or mitigation is available.
 
-Before `0.1.0`, only the latest pre-release is supported. After `0.1.0`, this
-policy will identify the supported release lines explicitly.
+Only the latest published `0.1.x` release is supported. This policy will name
+additional supported release lines if the project begins maintaining them in
+parallel.

@@ -8,7 +8,7 @@ license = "ISC"
 repository = "https://github.com/oschwald/maxminddb-polars"
 keywords = ["maxmind", "geoip", "mmdb", "polars"]
 categories = ["database", "api-bindings"]
-publish = false
+publish = ["crates-io"]
 
 [lib]
 name = "_maxminddb_polars"

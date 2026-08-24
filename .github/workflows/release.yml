@@ -49,7 +49,94 @@ jobs:
     permissions:
       contents: read
 
-  publish:
+  crate:
+    name: Package and validate crate
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_BUILD_JOBS: "1"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # master
+        with:
+          toolchain: stable
+      - run: cargo publish --dry-run --locked
+
+  publish-crate:
+    name: Publish to crates.io
+    if: github.event_name == 'release'
+    needs: [validate, artifacts, crate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_BUILD_JOBS: "1"
+    environment:
+      name: release
+      url: https://crates.io/crates/maxminddb-polars
+    permissions:
+      contents: read
+      # Authenticate to crates.io through OpenID Connect trusted publishing.
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # master
+        with:
+          toolchain: stable
+      - name: Check for an existing crate version
+        id: crate-state
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          status=$(curl --silent --show-error --location \
+            --user-agent "maxminddb-polars-release/$VERSION (https://github.com/oschwald/maxminddb-polars)" \
+            --output /dev/null --write-out '%{http_code}' \
+            "https://crates.io/api/v1/crates/maxminddb-polars/$VERSION")
+          case "$status" in
+            200)
+              echo "exists=true" >>"$GITHUB_OUTPUT"
+              ;;
+            404)
+              echo "exists=false" >>"$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unexpected crates.io response: HTTP $status" >&2
+              exit 1
+              ;;
+          esac
+      - name: Authenticate with crates.io
+        if: steps.crate-state.outputs.exists != 'true'
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+        id: auth
+      - name: Publish to crates.io
+        if: steps.crate-state.outputs.exists != 'true'
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      - name: Verify crates.io publication
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            status=$(curl --silent --show-error --location \
+              --user-agent "maxminddb-polars-release/$VERSION (https://github.com/oschwald/maxminddb-polars)" \
+              --output /dev/null --write-out '%{http_code}' \
+              "https://crates.io/api/v1/crates/maxminddb-polars/$VERSION")
+            if [[ "$status" == 200 ]]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "crates.io did not expose the expected package version" >&2
+          exit 1
+
+  publish-pypi:
     name: Publish to PyPI
     if: github.event_name == 'release'
     needs: [validate, artifacts]
@@ -71,9 +158,9 @@ jobs:
           packages-dir: dist
 
   verify-publish:
-    name: Verify published package
+    name: Verify published packages
     if: github.event_name == 'release'
-    needs: [validate, publish]
+    needs: [validate, publish-crate, publish-pypi]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

@@ -1,6 +1,6 @@
 # Installation and compatibility
 
-The unreleased `0.1` line targets CPython 3.10 through 3.14 and Polars
+The `0.1` line targets CPython 3.10 through 3.14 and Polars
 `>=1.43.2,<1.44`. Polars 1.43.0 and 1.43.1 are yanked on PyPI, so 1.43.2 is the
 first cleanly installable patch in the supported ABI line. The Python Polars
 range is intentionally narrow because a native expression plugin must match
@@ -15,7 +15,13 @@ Release artifacts are configured as `abi3-py310` wheels for:
 - Windows x86-64;
 - an sdist for other systems with a supported Rust toolchain.
 
-Until the first release is published, install a checkout from source:
+Install a released wheel with:
+
+```console
+python -m pip install maxminddb-polars
+```
+
+To install a checkout from source instead:
 
 ```console
 git clone --recurse-submodules https://github.com/oschwald/maxminddb-polars.git
@@ -23,9 +29,6 @@ cd maxminddb-polars
 uv sync --all-extras --locked
 uv run maturin develop
 ```
-
-Published wheels will install with `pip install maxminddb-polars`; this command
-is not expected to work before an actual release exists.
 
 ## Compatibility policy
 
@@ -41,8 +44,9 @@ is not expected to work before an actual release exists.
 - `Cargo.lock`, `uv.lock`, the release Rust toolchain, and the MaxMind-DB test
   fixture revision are committed. Dependency or fixture updates require the
   complete schema and artifact checks.
-- The `0.1` Rust crate remains `publish = false`; only the Python package has a
-  supported public API.
+- The native implementation is also distributed on crates.io so releases have
+  one version across both registries. Only the Python package has a supported
+  public API in the `0.1` line.
 
 Polars prereleases and future minors may be tested experimentally, but they are
 not supported until the declared dependency interval changes.
