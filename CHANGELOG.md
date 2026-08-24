@@ -24,3 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   containment for corrupt input that triggers upstream parser failures.
 - Added API, compatibility, performance, comparison, and security-testing
   documentation and froze the public `0.1` API.
+
+### Changed
+
+- Set the supported Polars floor to 1.43.2 because the 1.43.0 and 1.43.1
+  distributions are yanked on PyPI.

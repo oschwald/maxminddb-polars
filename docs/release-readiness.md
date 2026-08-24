@@ -42,7 +42,7 @@ readiness work cannot be mistaken for a published candidate.
 
 ## Known, accepted constraints
 
-- Python Polars support is intentionally `>=1.43,<1.44`; native plugin ABI
+- Python Polars support is intentionally `>=1.43.2,<1.44`; native plugin ABI
   updates require coordinated Rust Polars and `pyo3-polars` changes.
 - The visible PyO3 and bincode advisories are unreachable transitive APIs under
   the current compatibility pair. The disabled-cloud `quick-xml` dependency is

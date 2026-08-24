@@ -609,7 +609,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "polars", specifier = ">=1.43,<1.44" },
+    { name = "polars", specifier = ">=1.43.2,<1.44" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9" },
 ]
 provides-extras = ["test"]

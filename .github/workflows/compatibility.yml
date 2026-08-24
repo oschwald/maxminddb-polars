@@ -32,8 +32,6 @@ jobs:
       matrix:
         include:
           - python: "3.10"
-            polars: "1.43.0"
-          - python: "3.10"
             polars: "1.43.2"
           - python: "3.11"
             polars: "1.43.2"

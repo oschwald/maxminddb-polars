@@ -29,7 +29,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 keywords = ["maxmind", "geoip", "mmdb", "polars"]
-dependencies = ["polars>=1.43,<1.44"]
+dependencies = ["polars>=1.43.2,<1.44"]
 
 [project.urls]
 Homepage = "https://github.com/oschwald/maxminddb-polars"

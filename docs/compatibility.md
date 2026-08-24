@@ -1,9 +1,11 @@
 # Installation and compatibility
 
 The unreleased `0.1` line targets CPython 3.10 through 3.14 and Polars
-`>=1.43,<1.44`. The Python Polars range is intentionally narrow because a
-native expression plugin must match Polars' plugin ABI. A future Polars minor
-will be added only after source and built-wheel tests pass.
+`>=1.43.2,<1.44`. Polars 1.43.0 and 1.43.1 are yanked on PyPI, so 1.43.2 is the
+first cleanly installable patch in the supported ABI line. The Python Polars
+range is intentionally narrow because a native expression plugin must match
+Polars' plugin ABI. A future Polars minor will be added only after source and
+built-wheel tests pass.
 
 Release artifacts are configured as `abi3-py310` wheels for:
 
