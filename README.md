@@ -40,7 +40,8 @@ Density/Income, Domain, or ASN. Their stable Polars dtypes are exported from
 `maxminddb_polars.schemas`.
 
 Pass a nested mapping or `pl.Struct` as `dtype` for a partial known record or a
-custom database. See [Custom and partial schemas](docs/custom-schemas.md).
+custom database. See
+[Custom and partial schemas](https://github.com/oschwald/maxminddb-polars/blob/main/docs/custom-schemas.md).
 
 Inputs must have String dtype. Null inputs, lookup misses, and missing paths
 produce null. Invalid IP strings raise by default; pass `strict=False` to turn
@@ -60,21 +61,23 @@ uv run pytest
 cargo test --locked
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow.
+See
+[CONTRIBUTING.md](https://github.com/oschwald/maxminddb-polars/blob/main/CONTRIBUTING.md)
+for the complete development workflow.
 
 Documentation:
 
-- [API and supported databases](docs/api.md)
-- [Custom and partial schemas](docs/custom-schemas.md)
-- [Installation and compatibility](docs/compatibility.md)
-- [Performance and benchmarks](docs/performance.md)
-- [Competitor comparison](docs/comparison.md)
-- [Security testing](docs/security-testing.md)
-- [Release readiness](docs/release-readiness.md)
+- [API and supported databases](https://github.com/oschwald/maxminddb-polars/blob/main/docs/api.md)
+- [Custom and partial schemas](https://github.com/oschwald/maxminddb-polars/blob/main/docs/custom-schemas.md)
+- [Installation and compatibility](https://github.com/oschwald/maxminddb-polars/blob/main/docs/compatibility.md)
+- [Performance and benchmarks](https://github.com/oschwald/maxminddb-polars/blob/main/docs/performance.md)
+- [Competitor comparison](https://github.com/oschwald/maxminddb-polars/blob/main/docs/comparison.md)
+- [Security testing](https://github.com/oschwald/maxminddb-polars/blob/main/docs/security-testing.md)
+- [Release readiness](https://github.com/oschwald/maxminddb-polars/blob/main/docs/release-readiness.md)
 
 ## Project policies
 
-- [Changelog](CHANGELOG.md)
-- [Contributing](CONTRIBUTING.md)
-- [Security policy](SECURITY.md)
-- [ISC license](LICENSE)
+- [Changelog](https://github.com/oschwald/maxminddb-polars/blob/main/CHANGELOG.md)
+- [Contributing](https://github.com/oschwald/maxminddb-polars/blob/main/CONTRIBUTING.md)
+- [Security policy](https://github.com/oschwald/maxminddb-polars/blob/main/SECURITY.md)
+- [ISC license](https://github.com/oschwald/maxminddb-polars/blob/main/LICENSE)
