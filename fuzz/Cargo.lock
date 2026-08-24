@@ -1201,9 +1201,9 @@ dependencies = [
 
 [[package]]
 name = "maxminddb"
-version = "0.30.0"
+version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7bd67e2f5d65937ff283e418fcad53c8e2eeda0719e455508b62dad8ffe6180"
+checksum = "085e95c440d50ce56c566d423fbcbc4953e036b9473f96f20eb814d064c037c2"
 dependencies = [
  "ipnetwork",
  "memchr",
@@ -1214,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "maxminddb-polars"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "maxminddb",
  "polars",

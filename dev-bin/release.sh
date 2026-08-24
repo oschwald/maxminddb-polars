@@ -3,27 +3,29 @@
 set -euo pipefail
 
 dry_run=false
-if [[ "${1:-}" == "--dry-run" ]]; then
-    dry_run=true
-    shift
-fi
-if (( $# != 0 )); then
-    echo "Usage: dev-bin/release.sh [--dry-run]" >&2
+publish=false
+case "${1:-}" in
+    "") ;;
+    --dry-run) dry_run=true ;;
+    --publish) publish=true ;;
+    *)
+        echo "Usage: dev-bin/release.sh [--dry-run|--publish]" >&2
+        exit 2
+        ;;
+esac
+if (( $# > 1 )); then
+    echo "Usage: dev-bin/release.sh [--dry-run|--publish]" >&2
     exit 2
 fi
 
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
 
 branch=$(git symbolic-ref --quiet --short HEAD) || {
     echo "A release cannot be prepared from a detached HEAD." >&2
     exit 1
 }
-if [[ -n "$(git status --porcelain)" ]]; then
-    echo "The working tree must be clean." >&2
-    exit 1
-fi
-
 release_pattern='^## \[([0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?)\] - ([0-9]{4}-[0-9]{2}-[0-9]{2})$'
 release_heading=$(grep -m1 -E "$release_pattern" CHANGELOG.md || true)
 
@@ -75,6 +77,91 @@ for conversion in \
 done
 
 tag="v$version"
+
+if $publish; then
+    if [[ "$branch" != "main" ]]; then
+        echo "--publish must be run from main." >&2
+        exit 1
+    fi
+    if [[ -n "$(git status --porcelain)" ]]; then
+        echo "The working tree must be clean." >&2
+        exit 1
+    fi
+    if [[ "$release_date" != "$(date +%Y-%m-%d)" ]]; then
+        echo "Release date $release_date is not today." >&2
+        exit 1
+    fi
+
+    git fetch origin main --tags
+    head=$(git rev-parse HEAD)
+    if [[ "$head" != "$(git rev-parse origin/main)" ]]; then
+        echo "main must exactly match origin/main." >&2
+        exit 1
+    fi
+    cargo_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
+    if [[ "$cargo_version" != "$version" ]]; then
+        echo "Cargo.toml version $cargo_version does not match CHANGELOG.md $version." >&2
+        exit 1
+    fi
+    if git rev-parse --verify --quiet "$tag" >/dev/null || \
+        git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1 || \
+        gh release view "$tag" >/dev/null 2>&1; then
+        echo "Tag or release $tag already exists." >&2
+        exit 1
+    fi
+
+    cargo publish --dry-run --locked
+    project_status=$(curl --silent --show-error --location \
+        --connect-timeout 10 --max-time 30 --output /dev/null \
+        --write-out '%{http_code}' \
+        --user-agent "maxminddb-polars-release/$version (https://github.com/oschwald/maxminddb-polars)" \
+        https://crates.io/api/v1/crates/maxminddb-polars)
+    if [[ "$project_status" == "404" ]]; then
+        echo "The first crates.io version requires the local Cargo API token."
+        read -r -p "Bootstrap maxminddb-polars $version on crates.io? [y/N] " answer
+        if [[ ! "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
+            echo "Aborting before any release was created."
+            exit 1
+        fi
+        cargo publish --locked
+        echo "Configure the crate's trusted publisher for release.yml and the release environment."
+    elif [[ "$project_status" != "200" ]]; then
+        echo "Could not check crates.io (HTTP $project_status)." >&2
+        exit 1
+    fi
+
+    echo
+    echo "Release notes:"
+    printf '%s\n' "$notes"
+    echo
+    read -r -p "Create GitHub release $tag and start publication? [y/N] " answer
+    if [[ ! "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
+        echo "Stopping before the GitHub release was created."
+        exit 1
+    fi
+    gh release create --target "$head" --title "$version" --notes "$notes" "$tag"
+    echo "Release created. Follow the Release workflow until publication completes."
+    exit 0
+fi
+
+if $dry_run; then
+    if [[ -n "$(git status --porcelain)" ]]; then
+        echo "The working tree must be clean for a dry run." >&2
+        exit 1
+    fi
+else
+    if ! git diff --cached --quiet || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+        echo "The index and untracked-file set must be clean." >&2
+        exit 1
+    fi
+    while IFS= read -r changed_file; do
+        if [[ -n "$changed_file" && "$changed_file" != "CHANGELOG.md" ]]; then
+            echo "Only CHANGELOG.md may be edited before preparing a release." >&2
+            exit 1
+        fi
+    done < <(git diff --name-only)
+fi
+
 if ! $dry_run; then
     if [[ "$branch" == "main" ]]; then
         echo "Create release/$tag from origin/main before preparing a release." >&2
@@ -102,9 +189,11 @@ if ! $dry_run; then
     perl -0pi -e \
         's/^version = "[^"]+"/version = "'"$version"'"/m' Cargo.toml
     cargo check
+    cargo check --manifest-path fuzz/Cargo.toml
 fi
 
 scripts/check
+cargo publish --dry-run --locked --allow-dirty
 
 artifact_dir=$(mktemp -d)
 uv run --no-sync maturin build --release --locked --out "$artifact_dir"
@@ -115,7 +204,7 @@ uv run --no-sync twine check --strict "$artifact_dir"/*
 
 echo
 echo "Release diff:"
-git diff -- Cargo.toml Cargo.lock README.md CHANGELOG.md
+git diff -- Cargo.toml Cargo.lock fuzz/Cargo.lock README.md CHANGELOG.md
 echo
 echo "Release notes:"
 printf '%s\n' "$notes"
@@ -129,12 +218,12 @@ if $dry_run; then
 fi
 
 read -r -p "Create the release-preparation commit and push this branch? [y/N] " answer
-if [[ "$answer" != "y" ]]; then
+if [[ ! "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
     echo "Leaving the validated release changes in the working tree."
     exit 1
 fi
 
-git add Cargo.toml Cargo.lock README.md CHANGELOG.md
+git add Cargo.toml Cargo.lock fuzz/Cargo.lock README.md CHANGELOG.md
 git commit -m "Prepare $tag release"
 git push --set-upstream origin "$branch"
 

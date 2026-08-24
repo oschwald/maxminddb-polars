@@ -16,7 +16,7 @@ or publishing changes.
 - Python floor: 3.10
 - Python Polars range: 1.43.x
 - Rust Polars/pyo3-polars: 0.54.4/0.27.0
-- maxminddb: 0.30.0
+- maxminddb: 0.30.1
 - MaxMind-DB fixture commit: `e1120013c4b5cbc830b958b2b7e73fba444d316d`
 
 Exact-name checks on 2026-08-23 found no `maxminddb-polars` project on PyPI,
@@ -58,11 +58,14 @@ deletion remain disabled for everyone.
 ## Publishing checklist
 
 - [x] A `pypi` environment accepts only `v*` tags and has no upload token.
-- [ ] The pending PyPI Trusted Publisher uses owner `oschwald`.
-- [ ] Its repository is `maxminddb-polars`.
-- [ ] Its workflow is `release.yml`.
-- [ ] Its environment is `pypi`.
-- [ ] Its PyPI project name is `maxminddb-polars`.
+- [x] A `release` environment accepts only `v*` tags and has no upload token.
+- [x] The pending PyPI Trusted Publisher uses owner `oschwald`.
+- [x] Its repository is `maxminddb-polars`.
+- [x] Its workflow is `release.yml`.
+- [x] Its environment is `pypi`.
+- [x] Its PyPI project name is `maxminddb-polars`.
+- [ ] The crates.io trusted publisher uses owner `oschwald`, repository
+      `maxminddb-polars`, workflow `release.yml`, and environment `release`.
 - [ ] Maintainer accounts have two-factor authentication and recovery access.
 - [x] A no-publish artifact and release rehearsal has passed.
 

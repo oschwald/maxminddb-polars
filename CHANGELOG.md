@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-23
+
 ### Added
 
 - Initialized the standalone Rust/Python Polars expression-plugin project.
@@ -24,8 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   containment for corrupt input that triggers upstream parser failures.
 - Added API, compatibility, performance, comparison, and security-testing
   documentation and froze the public `0.1` API.
+- Added crates.io packaging and OIDC trusted publishing for the native
+  implementation crate.
 
 ### Changed
 
+- Updated `maxminddb` to 0.30.1, which reports malformed extended data types as
+  decoder errors instead of panicking on integer overflow.
 - Set the supported Polars floor to 1.43.2 because the 1.43.0 and 1.43.1
   distributions are yanked on PyPI.

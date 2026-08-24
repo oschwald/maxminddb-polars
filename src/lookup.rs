@@ -600,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn contains_fuzz_discovered_extended_type_overflow() {
+    fn fuzz_discovered_extended_type_overflow_is_a_decoder_error() {
         let encoded =
             include_str!("../tests/fuzz-fixtures/projected-value-extended-type-overflow.mmdb.b64");
         let bytes = base64::engine::general_purpose::STANDARD
@@ -610,21 +610,15 @@ mod tests {
         let result = reader
             .lookup(IpAddr::V4(Ipv4Addr::new(89, 160, 20, 128)))
             .unwrap();
-        let database = DatabaseIdentity {
-            canonical_path: "fuzz regression fixture".to_owned(),
-            size: 0,
-            modified_ns: 0,
-        };
         let schema = crate::schema::known_schema("GeoIP2-City").unwrap();
 
-        let error = guard_mmdb_operation(&database, || {
-            with_projected_schema(&schema, || decode_projected_path(&result, &[])).map_err(
-                |error| polars_err!(ComputeError: "unexpected ordinary decode error: {error}"),
-            )
-        })
-        .unwrap_err();
+        let error = with_projected_schema(&schema, || decode_projected_path(&result, &[]))
+            .expect_err("malformed extended types must be rejected");
 
-        assert!(error.to_string().contains("database may be corrupt"));
+        assert!(
+            error.to_string().contains("expected map, got type 258"),
+            "{error}"
+        );
     }
 
     fn projected_schema() -> SchemaSpec {

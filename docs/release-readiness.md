@@ -1,9 +1,9 @@
 # 0.1 release readiness
 
-The public API and implementation are ready for a `0.1.0rc1` release-candidate
-soak, subject to the deliberately unperformed release-only steps below. The
-repository remains at the non-release placeholder version `0.0.0` so this
-readiness work cannot be mistaken for a published candidate.
+The public API and implementation are ready for the `0.1.0` release. The
+release branch changes the placeholder version only after every preparation
+check passes, and the final release sequence below starts only after that
+branch has passed CI and merged.
 
 ## Completed gates
 
@@ -28,6 +28,9 @@ readiness work cannot be mistaken for a published candidate.
   wheel; inspect package contents, licenses, and shared libraries; build from
   the sdist; run public lookups; generate checksums; and retain the exact
   publishable artifacts.
+- The Cargo crate is packaged and compiled in release rehearsals. Published
+  GitHub releases send it to crates.io through OIDC trusted publishing and send
+  the already-validated Python distributions to PyPI independently.
 - A local no-publish rehearsal passed `scripts/check`, a locked release wheel
   and sdist build, artifact inspection, and strict `twine check`. The exact
   wheel then installed into a clean temporary Python 3.13/Polars 1.43.2
@@ -56,16 +59,14 @@ readiness work cannot be mistaken for a published candidate.
   internal release gate; the partial lookup is faster on repeated offsets and
   retains general schemas and null semantics.
 
-## Release-only steps not performed
+## Final release sequence
 
-The following actions require an explicit future release decision and are out
-of scope for this readiness pass:
+After the release branch passes CI and merges:
 
-- choose `0.1.0rc1`, date its changelog entry, and create a release branch/PR;
-- complete the PyPI pending Trusted Publisher and maintainer 2FA checklist;
-- create or push a version tag;
-- create a GitHub prerelease or GA release;
-- upload any artifact to PyPI or install a published package;
-- conduct the elapsed-time RC soak and, only if it has no release-blocking
-  correctness, crash, packaging, or schema issue, repeat the release-only
-  sequence for `0.1.0`.
+- bootstrap the first crates.io version with a narrowly scoped API token;
+- configure the crates.io trusted publisher for `release.yml` and the
+  `release` environment, then remove the bootstrap token;
+- confirm the PyPI pending Trusted Publisher and maintainer 2FA checklist;
+- create the `v0.1.0` GitHub release from the verified `main` merge commit;
+- follow the release workflow while it publishes to crates.io and PyPI; and
+- verify both registry pages, checksums, provenance, and clean installations.

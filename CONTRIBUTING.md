@@ -1,8 +1,8 @@
 # Contributing to maxminddb-polars
 
-Thank you for helping improve `maxminddb-polars`. The project is pre-release,
-so API proposals are welcome, but performance and schema changes should include
-tests and evidence.
+Thank you for helping improve `maxminddb-polars`. The project is in its initial
+`0.1` release line, so API proposals are welcome, but performance and schema
+changes should include tests and evidence.
 
 ## Prerequisites
 
@@ -69,3 +69,25 @@ containing database contents.
 
 The Rust `polars` and `pyo3-polars` dependencies must move together and must be
 validated against the declared Python Polars versions using built wheels.
+
+## Releases
+
+Create `release/vX.Y.Z` from `origin/main`, move the `Unreleased` changelog
+entry to `## [X.Y.Z] - YYYY-MM-DD`, and run:
+
+```console
+dev-bin/release.sh
+```
+
+The helper validates the Cargo crate, wheel, sdist, tests, and metadata before
+creating and pushing the release-preparation commit. Merge its pull request,
+update local `main`, and start the release from the verified merge commit with:
+
+```console
+dev-bin/release.sh --publish
+```
+
+The first crates.io publication requires a local API token to establish crate
+ownership. Configure its trusted publisher for `release.yml` and the `release`
+GitHub environment immediately afterward; subsequent releases use short-lived
+OIDC credentials. PyPI publication uses its separate `pypi` environment.
