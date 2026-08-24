@@ -1,8 +1,9 @@
 # 0.1 release readiness
 
-The public API and implementation are ready for the `0.1.0` release, subject
-to the deliberately unperformed release-only steps below. The release branch
-changes the placeholder version only after every preparation check passes.
+The public API and implementation are ready for the `0.1.0` release. The
+release branch changes the placeholder version only after every preparation
+check passes, and the final release sequence below starts only after that
+branch has passed CI and merged.
 
 ## Completed gates
 
@@ -58,16 +59,14 @@ changes the placeholder version only after every preparation check passes.
   internal release gate; the partial lookup is faster on repeated offsets and
   retains general schemas and null semantics.
 
-## Release-only steps not performed
+## Final release sequence
 
-The following actions require an explicit future release decision and are out
-of scope for this readiness pass:
+After the release branch passes CI and merges:
 
-- date the `0.1.0` changelog entry and merge its release branch after CI;
-- bootstrap the first crates.io version with a narrowly scoped API token, then
-  configure the `release.yml` trusted publisher and remove that token;
-- complete the PyPI pending Trusted Publisher and maintainer 2FA checklist;
-- create or push a version tag;
-- create a GitHub prerelease or GA release;
-- upload any artifact to PyPI or install a published package;
+- bootstrap the first crates.io version with a narrowly scoped API token;
+- configure the crates.io trusted publisher for `release.yml` and the
+  `release` environment, then remove the bootstrap token;
+- confirm the PyPI pending Trusted Publisher and maintainer 2FA checklist;
+- create the `v0.1.0` GitHub release from the verified `main` merge commit;
+- follow the release workflow while it publishes to crates.io and PyPI; and
 - verify both registry pages, checksums, provenance, and clean installations.
