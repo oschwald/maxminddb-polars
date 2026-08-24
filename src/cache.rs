@@ -8,6 +8,8 @@ use maxminddb::Reader;
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::guard::catch_mmdb_unwind;
+
 pub type CachedReader = Reader<Vec<u8>>;
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -86,7 +88,14 @@ fn open_snapshot(identity: &DatabaseIdentity) -> PolarsResult<CachedReader> {
         )
     }
 
-    Reader::from_source(bytes).map_err(|error| {
+    let reader = catch_mmdb_unwind(|| Reader::from_source(bytes)).map_err(|()| {
+        polars_err!(
+            ComputeError:
+            "could not open MMDB {} because the parser panicked; the database may be corrupt",
+            canonical_path.display()
+        )
+    })?;
+    reader.map_err(|error| {
         polars_err!(
             ComputeError:
             "could not open MMDB {}: {error}",

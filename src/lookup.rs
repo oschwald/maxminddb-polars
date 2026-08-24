@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use crate::cache::{CachedReader, DatabaseIdentity, reader_for};
+use crate::guard::catch_mmdb_unwind;
 use crate::known::decode_known;
 use crate::schema::{PathPart, SchemaSpec, resolve_path_dtype, resolve_record_dtype, to_mmdb_path};
 use crate::value::{Value, decode_projected_path, values_to_series, with_projected_schema};
@@ -108,11 +109,13 @@ pub fn lookup_record_series(
             &kwargs.database,
         );
     };
-    let unique_values = batch
-        .unique
-        .iter()
-        .map(|result| decode_known(result, record))
-        .collect::<PolarsResult<Vec<_>>>()?;
+    let unique_values = guard_mmdb_operation(&kwargs.database, || {
+        batch
+            .unique
+            .iter()
+            .map(|result| decode_known(result, record))
+            .collect::<PolarsResult<Vec<_>>>()
+    })?;
     decoded_values_to_series(input.name().clone(), &unique_values, &batch.rows, &dtype)
 }
 
@@ -122,6 +125,17 @@ pub(crate) struct LookupBatch<'a> {
 }
 
 pub(crate) fn lookup_batch<'a>(
+    ips: &StringChunked,
+    reader: &'a CachedReader,
+    database: &DatabaseIdentity,
+    strict: bool,
+) -> PolarsResult<LookupBatch<'a>> {
+    guard_mmdb_operation(database, || {
+        lookup_batch_inner(ips, reader, database, strict)
+    })
+}
+
+fn lookup_batch_inner<'a>(
     ips: &StringChunked,
     reader: &'a CachedReader,
     database: &DatabaseIdentity,
@@ -186,19 +200,21 @@ where
     T: DeserializeOwned + Clone,
 {
     let batch = lookup_batch(ips, reader, &kwargs.database, kwargs.strict)?;
-    let unique_values = batch
-        .unique
-        .iter()
-        .map(|result| {
-            result.decode_path(path).map_err(|error| {
-                polars_err!(
-                    ComputeError:
-                    "could not decode MMDB value at path in {:?}: {error}",
-                    kwargs.database.canonical_path
-                )
+    let unique_values = guard_mmdb_operation(&kwargs.database, || {
+        batch
+            .unique
+            .iter()
+            .map(|result| {
+                result.decode_path(path).map_err(|error| {
+                    polars_err!(
+                        ComputeError:
+                        "could not decode MMDB value at path in {:?}: {error}",
+                        kwargs.database.canonical_path
+                    )
+                })
             })
-        })
-        .collect::<PolarsResult<Vec<Option<T>>>>()?;
+            .collect::<PolarsResult<Vec<Option<T>>>>()
+    })?;
 
     Ok(batch
         .rows
@@ -215,20 +231,22 @@ fn decode_nested_path_values(
     kwargs: &LookupPathKwargs,
 ) -> PolarsResult<Series> {
     let batch = lookup_batch(ips, reader, &kwargs.database, kwargs.strict)?;
-    let unique_values = with_projected_schema(dtype, || {
-        batch
-            .unique
-            .iter()
-            .map(|result| {
-                decode_projected_path(result, path).map_err(|error| {
-                    polars_err!(
-                        ComputeError:
-                        "could not decode MMDB value at path in {:?}: {error}",
-                        kwargs.database.canonical_path
-                    )
+    let unique_values = guard_mmdb_operation(&kwargs.database, || {
+        with_projected_schema(dtype, || {
+            batch
+                .unique
+                .iter()
+                .map(|result| {
+                    decode_projected_path(result, path).map_err(|error| {
+                        polars_err!(
+                            ComputeError:
+                            "could not decode MMDB value at path in {:?}: {error}",
+                            kwargs.database.canonical_path
+                        )
+                    })
                 })
-            })
-            .collect::<PolarsResult<Vec<_>>>()
+                .collect::<PolarsResult<Vec<_>>>()
+        })
     })?;
     decoded_values_to_series(ips.name().clone(), &unique_values, &batch.rows, dtype)
 }
@@ -259,18 +277,20 @@ fn decode_projection_series<'a>(
             .iter()
             .map(|name| maxminddb::PathElement::Key(name))
             .collect::<Vec<_>>();
-        let leaf_values = with_projected_schema(leaf.dtype, || {
-            results
-                .iter()
-                .map(|result| decode_leaf(result, &path, leaf.dtype))
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .map_err(|error| {
-            polars_err!(
-                ComputeError:
-                "could not decode MMDB record in {:?}: {error}",
-                database.canonical_path
-            )
+        let leaf_values = guard_mmdb_operation(database, || {
+            with_projected_schema(leaf.dtype, || {
+                results
+                    .iter()
+                    .map(|result| decode_leaf(result, &path, leaf.dtype))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map_err(|error| {
+                polars_err!(
+                    ComputeError:
+                    "could not decode MMDB record in {:?}: {error}",
+                    database.canonical_path
+                )
+            })
         })?;
         let values = leaf_values
             .into_iter()
@@ -429,14 +449,30 @@ fn value_at_path<'a>(mut value: &'a Value<'a>, path: &[&str]) -> Option<&'a Valu
     Some(value)
 }
 
+fn guard_mmdb_operation<T>(
+    database: &DatabaseIdentity,
+    operation: impl FnOnce() -> PolarsResult<T>,
+) -> PolarsResult<T> {
+    catch_mmdb_unwind(operation).map_err(|()| {
+        polars_err!(
+            ComputeError:
+            "MMDB parser panicked while reading {:?}; the database may be corrupt",
+            database.canonical_path
+        )
+    })?
+}
+
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
     use std::fs;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::path::Path;
     use std::time::UNIX_EPOCH;
 
+    use base64::Engine;
+    use maxminddb::Reader;
     use proptest::prelude::*;
 
     use super::*;
@@ -561,6 +597,34 @@ mod tests {
             }));
             assert!(outcome.is_ok(), "fixture panicked: {}", database.display());
         }
+    }
+
+    #[test]
+    fn contains_fuzz_discovered_extended_type_overflow() {
+        let encoded =
+            include_str!("../tests/fuzz-fixtures/projected-value-extended-type-overflow.mmdb.b64");
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded.split_whitespace().collect::<String>())
+            .unwrap();
+        let reader = Reader::from_source(bytes).unwrap();
+        let result = reader
+            .lookup(IpAddr::V4(Ipv4Addr::new(89, 160, 20, 128)))
+            .unwrap();
+        let database = DatabaseIdentity {
+            canonical_path: "fuzz regression fixture".to_owned(),
+            size: 0,
+            modified_ns: 0,
+        };
+        let schema = crate::schema::known_schema("GeoIP2-City").unwrap();
+
+        let error = guard_mmdb_operation(&database, || {
+            with_projected_schema(&schema, || decode_projected_path(&result, &[])).map_err(
+                |error| polars_err!(ComputeError: "unexpected ordinary decode error: {error}"),
+            )
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("database may be corrupt"));
     }
 
     fn projected_schema() -> SchemaSpec {

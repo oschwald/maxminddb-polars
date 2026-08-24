@@ -6,8 +6,11 @@ documented strictness rules; they must never unwind across the plugin boundary.
 
 The normal Rust suite exercises every MMDB file in the pinned upstream
 corruption corpus: 21 files under `bad-data` and four broken/invalid files under
-`test-data`. The test catches unwinding around the same cached-reader and path
-lookup entry point used by the expression plugin. Property tests generate
+`test-data`. It also retains the first fuzz-discovered decoder-overflow input as
+a base64 regression fixture. Tests exercise the same cached-reader and path
+lookup entry points used by the expression plugin. MMDB open, lookup, and decode
+operations contain upstream parser panics and report a Polars error instead of
+unwinding across the plugin boundary. Property tests generate
 random row order, null, miss, invalid-IP, duplicate-offset, gather-map, and
 extreme path-index cases. The optimized nested gather is compared with a
 simple row-wise reference implementation.

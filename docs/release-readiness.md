@@ -12,9 +12,10 @@ readiness work cannot be mistaken for a published candidate.
 - All nine standard record schemas, metadata aliases, scalar and nested paths,
   custom schemas, and validated partial schemas have eager, lazy, streaming,
   cross-platform, dtype, null, strictness, concurrency, and snapshot coverage.
-- Nineteen Rust tests include differential property tests and every one of the
-  25 pinned corrupt/broken MMDB fixtures. Forty-eight Python tests cover the
-  Python/plugin boundary and frozen public surface.
+- Twenty-one Rust tests include differential property tests, every one of the
+  25 pinned corrupt/broken MMDB fixtures, and a fuzz-discovered parser-panic
+  regression. Forty-eight Python tests cover the Python/plugin boundary and
+  frozen public surface.
 - Four fuzz targets cover kwargs/schema deserialization, path traversal,
   schema-guided decoding, and malformed databases. Pull requests and pushes
   run bounded smoke fuzzing; the weekly schedule runs the seeded corpus longer.

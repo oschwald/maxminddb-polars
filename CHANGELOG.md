@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added reproducible fixture, real City, and pinned competitor benchmarks with
   peak-memory reporting and bounded large-run controls.
 - Added property tests, the complete upstream corruption corpus, four fuzz
-  targets, bounded CI fuzzing, and custom-decoder allocation hardening.
+  targets, bounded CI fuzzing, custom-decoder allocation hardening, and panic
+  containment for corrupt input that triggers upstream parser failures.
 - Added API, compatibility, performance, comparison, and security-testing
   documentation and froze the public `0.1` API.
