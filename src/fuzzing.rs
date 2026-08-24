@@ -12,6 +12,16 @@ use crate::value::{Value, decode_projected_path, with_projected_schema};
 
 const MAX_FUZZ_INPUT_BYTES: usize = 8 * 1024 * 1024;
 
+/// Let the production unwind guard observe parser panics under libFuzzer.
+///
+/// `libfuzzer-sys` normally installs a hook that aborts before unwinding. Its
+/// outer target boundary still aborts on any panic that escapes this crate, so
+/// replacing the hook does not hide unrelated fuzz failures.
+pub fn initialize_panic_hook() {
+    drop(std::panic::take_hook());
+    std::panic::set_hook(Box::new(|panic_info| eprintln!("{panic_info}")));
+}
+
 #[derive(Deserialize)]
 struct PathInput {
     schema: SchemaSpec,
