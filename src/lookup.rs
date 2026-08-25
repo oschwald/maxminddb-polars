@@ -6,7 +6,6 @@ use maxminddb::LookupResult;
 use polars::prelude::*;
 use polars_arrow::bitmap::Bitmap;
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
 
 use crate::cache::{CachedReader, DatabaseIdentity, reader_for};
 use crate::guard::catch_mmdb_unwind;
@@ -61,8 +60,11 @@ pub fn lookup_path_series(inputs: &[Series], kwargs: &LookupPathKwargs) -> Polar
 
     macro_rules! primitive {
         ($ty:ty, $chunked:ty) => {{
-            let values = decode_scalar_values::<$ty>(ips, &reader, &path, kwargs)?;
-            Ok(<$chunked>::from_iter_options(name, values.into_iter()).into_series())
+            let (unique_values, rows) = decode_scalar_values::<$ty>(ips, &reader, &path, kwargs)?;
+            let values = rows
+                .into_iter()
+                .map(|row| row.and_then(|index| unique_values[index]));
+            Ok(<$chunked>::from_iter_options(name, values).into_series())
         }};
     }
 
@@ -80,8 +82,8 @@ pub fn lookup_path_series(inputs: &[Series], kwargs: &LookupPathKwargs) -> Polar
         SchemaSpec::Int128 => primitive!(i128, Int128Chunked),
         SchemaSpec::Float32 => primitive!(f32, Float32Chunked),
         SchemaSpec::Float64 => primitive!(f64, Float64Chunked),
-        SchemaSpec::String => primitive!(String, StringChunked),
-        SchemaSpec::Binary => primitive!(Vec<u8>, BinaryChunked),
+        SchemaSpec::String => primitive!(&str, StringChunked),
+        SchemaSpec::Binary => primitive!(&[u8], BinaryChunked),
         dtype => decode_nested_path_values(ips, &reader, &path, &dtype, kwargs),
     }
 }
@@ -190,14 +192,14 @@ fn lookup_batch_inner<'a>(
     Ok(LookupBatch { unique, rows })
 }
 
-fn decode_scalar_values<T>(
+fn decode_scalar_values<'a, T>(
     ips: &StringChunked,
-    reader: &CachedReader,
+    reader: &'a CachedReader,
     path: &[maxminddb::PathElement<'_>],
     kwargs: &LookupPathKwargs,
-) -> PolarsResult<Vec<Option<T>>>
+) -> PolarsResult<(Vec<Option<T>>, Vec<Option<usize>>)>
 where
-    T: DeserializeOwned + Clone,
+    T: Deserialize<'a> + Copy,
 {
     let batch = lookup_batch(ips, reader, &kwargs.database, kwargs.strict)?;
     let unique_values = guard_mmdb_operation(&kwargs.database, || {
@@ -216,11 +218,7 @@ where
             .collect::<PolarsResult<Vec<Option<T>>>>()
     })?;
 
-    Ok(batch
-        .rows
-        .into_iter()
-        .map(|row| row.and_then(|index| unique_values[index].clone()))
-        .collect())
+    Ok((unique_values, batch.rows))
 }
 
 fn decode_nested_path_values(
