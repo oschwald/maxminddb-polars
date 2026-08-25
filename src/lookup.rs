@@ -17,8 +17,8 @@ use crate::value::{Value, decode_projected_path, values_to_series, with_projecte
 
 // Smaller batches do not repay Rayon scheduling and multi-chunk output costs.
 const PARALLEL_SCALAR_MIN_ROWS: usize = 8_192;
-// Bound temporary decoded values while leaving enough tasks for work stealing.
-const PARALLEL_SCALAR_MIN_CHUNK_ROWS: usize = 2_048;
+// Bound each task's temporary decoded values independently of the batch size.
+const PARALLEL_SCALAR_MAX_CHUNK_ROWS: usize = 2_048;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct LookupPathKwargs {
@@ -54,6 +54,14 @@ pub fn record_output_dtype(kwargs: &LookupRecordKwargs) -> PolarsResult<SchemaSp
 }
 
 pub fn lookup_path_series(inputs: &[Series], kwargs: &LookupPathKwargs) -> PolarsResult<Series> {
+    lookup_path_series_with_workers(inputs, kwargs, RAYON.current_num_threads())
+}
+
+fn lookup_path_series_with_workers(
+    inputs: &[Series],
+    kwargs: &LookupPathKwargs,
+    scalar_workers: usize,
+) -> PolarsResult<Series> {
     let [input] = inputs else {
         polars_bail!(InvalidOperation: "MMDB lookup expects exactly one input column")
     };
@@ -67,7 +75,7 @@ pub fn lookup_path_series(inputs: &[Series], kwargs: &LookupPathKwargs) -> Polar
 
     macro_rules! primitive {
         ($ty:ty, $chunked:ty) => {{
-            if ips.len() >= PARALLEL_SCALAR_MIN_ROWS && RAYON.current_num_threads() > 2 {
+            if ips.len() >= PARALLEL_SCALAR_MIN_ROWS && scalar_workers > 2 {
                 let chunk_name = name.clone();
                 let chunks = decode_scalar_chunks_parallel::<$ty, _, _>(
                     ips,
@@ -275,18 +283,15 @@ where
     if ips.is_empty() {
         return Ok(Vec::new());
     }
-    let target_chunk_count = RAYON.current_num_threads().saturating_mul(8).min(ips.len());
-    let chunk_size = ips
-        .len()
-        .div_ceil(target_chunk_count)
-        .max(PARALLEL_SCALAR_MIN_CHUNK_ROWS);
     let chunks = ips
         .downcast_iter()
         .flat_map(|array| {
-            (0..array.len()).step_by(chunk_size).map(move |start| {
-                let end = (start + chunk_size).min(array.len());
-                (array, start, end)
-            })
+            (0..array.len())
+                .step_by(PARALLEL_SCALAR_MAX_CHUNK_ROWS)
+                .map(move |start| {
+                    let end = (start + PARALLEL_SCALAR_MAX_CHUNK_ROWS).min(array.len());
+                    (array, start, end)
+                })
         })
         .collect::<Vec<_>>();
     guard_mmdb_operation(&kwargs.database, || {
@@ -658,14 +663,21 @@ mod tests {
         let input = series(&inputs);
         let ips = input.str().unwrap();
 
-        let parallel =
+        let parallel_chunks =
             decode_scalar_chunks_parallel::<&str, _, _>(ips, &reader, &path, &kwargs, |values| {
                 values
             })
-            .unwrap()
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
+            .unwrap();
+        assert_eq!(
+            parallel_chunks.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![2_048, 2_048, 2_048, 2_048, 8]
+        );
+        assert!(
+            parallel_chunks
+                .iter()
+                .all(|values| values.len() <= PARALLEL_SCALAR_MAX_CHUNK_ROWS)
+        );
+        let parallel = parallel_chunks.into_iter().flatten().collect::<Vec<_>>();
         let (unique, rows) = decode_scalar_values::<&str>(ips, &reader, &path, &kwargs).unwrap();
         let deduplicated = rows
             .into_iter()
@@ -673,6 +685,65 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(parallel, deduplicated);
+    }
+
+    #[test]
+    fn scalar_dispatch_respects_row_and_worker_thresholds() {
+        let kwargs = kwargs(false);
+        let candidates = [
+            Some("89.160.20.128"),
+            None,
+            Some("not-an-ip"),
+            Some("203.0.113.1"),
+        ];
+        let inputs = (0..PARALLEL_SCALAR_MIN_ROWS)
+            .map(|index| candidates[index % candidates.len()])
+            .collect::<Vec<_>>();
+        let input = series(&inputs);
+
+        let parallel =
+            lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 3).unwrap();
+        let two_workers =
+            lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 2).unwrap();
+        let below_threshold = lookup_path_series_with_workers(
+            &[input.slice(0, PARALLEL_SCALAR_MIN_ROWS - 1)],
+            &kwargs,
+            3,
+        )
+        .unwrap();
+
+        assert!(parallel.equals_missing(&two_workers));
+        assert_eq!(parallel.n_chunks(), 4);
+        assert_eq!(two_workers.n_chunks(), 1);
+        assert_eq!(below_threshold.n_chunks(), 1);
+    }
+
+    #[test]
+    fn parallel_scalar_dispatch_preserves_unequal_input_chunks() {
+        let kwargs = kwargs(false);
+        let candidates = [
+            Some("89.160.20.128"),
+            None,
+            Some("not-an-ip"),
+            Some("203.0.113.1"),
+        ];
+        let make_values = |length: usize, offset: usize| {
+            (0..length)
+                .map(|index| candidates[(index + offset) % candidates.len()])
+                .collect::<Vec<_>>()
+        };
+        let first = make_values(4_097, 0);
+        let second = make_values(4_111, first.len());
+        let mut input = series(&first);
+        input.append(&series(&second)).unwrap();
+        assert_eq!(input.n_chunks(), 2);
+
+        let parallel =
+            lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 3).unwrap();
+        let serial = lookup_path_series_with_workers(&[input], &kwargs, 1).unwrap();
+
+        assert!(parallel.equals_missing(&serial));
+        assert_eq!(parallel.n_chunks(), 6);
     }
 
     fn collect_corrupt_fixtures() -> Vec<std::path::PathBuf> {
