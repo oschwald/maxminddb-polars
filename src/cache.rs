@@ -20,6 +20,7 @@ pub struct DatabaseIdentity {
     pub size: u64,
     pub modified_ns: u64,
     pub changed_ns: i64,
+    pub file_id: u64,
 }
 
 const DEFAULT_CACHE_MAX_BYTES: usize = 512 * 1024 * 1024;
@@ -193,13 +194,27 @@ pub(crate) fn identity_for_path(path: &Path) -> PolarsResult<DatabaseIdentity> {
             )
         })?;
     let changed_ns = metadata_changed_ns(&metadata, path)?;
+    let file_id = metadata_file_id(&metadata, path)?;
 
     Ok(DatabaseIdentity {
         canonical_path: canonical_path_string(path),
         size: metadata.len(),
         modified_ns,
         changed_ns,
+        file_id,
     })
+}
+
+#[cfg(unix)]
+fn metadata_file_id(metadata: &fs::Metadata, _path: &Path) -> PolarsResult<u64> {
+    use std::os::unix::fs::MetadataExt;
+
+    Ok(metadata.ino())
+}
+
+#[cfg(not(unix))]
+fn metadata_file_id(_metadata: &fs::Metadata, _path: &Path) -> PolarsResult<u64> {
+    Ok(0)
 }
 
 #[cfg(unix)]
@@ -334,7 +349,7 @@ mod tests {
         let new_identity = identity_for_path(&database).unwrap();
         assert_eq!(old_identity.size, new_identity.size);
         assert_eq!(old_identity.modified_ns, new_identity.modified_ns);
-        assert_ne!(old_identity.changed_ns, new_identity.changed_ns);
+        assert_ne!(old_identity.file_id, new_identity.file_id);
         assert!(reader_for(&new_identity).is_err());
         assert_eq!(old_reader.metadata().database_type, "GeoIP2-City");
     }

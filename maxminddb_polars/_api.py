@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -30,6 +31,8 @@ def _database_identity(database: str | Path) -> dict[str, str | int]:
         "size": stat.st_size,
         "modified_ns": stat.st_mtime_ns,
         "changed_ns": stat.st_ctime_ns,
+        # Rust's stable Windows metadata API does not expose the file index.
+        "file_id": 0 if os.name == "nt" else stat.st_ino,
     }
 
 

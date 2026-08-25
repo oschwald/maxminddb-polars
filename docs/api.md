@@ -99,8 +99,9 @@ not prove whether its source map was physically absent.
 ## Database updates
 
 An expression captures the canonical path, byte size, nanosecond modification
-time, and filesystem metadata-change or creation time. Schema planning and
-execution share a strong in-memory byte snapshot for that generation.
+time, filesystem metadata-change or creation time, and the Unix file identity
+when available. Schema planning and execution share a strong in-memory byte
+snapshot for that generation.
 Atomically replace an MMDB file and construct a new expression to use the
 replacement. In-place changes detected during open fail rather than silently
 mixing generations.
