@@ -51,6 +51,17 @@ def test_explicit_dtype_supports_an_unknown_database() -> None:
     assert result.to_dict(as_series=False) == {"value": [2**28]}
 
 
+def test_large_binary_scalar_batch_preserves_order_and_nulls() -> None:
+    values = ["::1.1.1.0", None, "not-an-ip"] * 2_731
+    result = pl.DataFrame({"ip": values}).select(
+        mmp.lookup_path(
+            "ip", CUSTOM_DB, ["bytes"], dtype=pl.Binary, strict=False
+        ).alias("value")
+    )
+
+    assert result["value"].to_list() == [b"\x00\x00\x00*", None, None] * 2_731
+
+
 def test_unknown_database_requires_dtype_during_planning() -> None:
     query = (
         pl.DataFrame({"ip": ["::1.1.1.0"]})
