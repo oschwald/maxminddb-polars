@@ -23,10 +23,12 @@ Struct without per-row recursive values. A batch performs one MMDB tree lookup
 per non-null valid IP and decodes each unique record offset once per selected
 leaf rather than once per input row.
 
-Keep scalar `lookup_path` on its direct typed decoder. Keep complete standard
-records on their compile-time-checked `maxminddb::geoip2` decoders. This
-preserves the fastest specialized routes without creating different schema
-semantics.
+Keep scalar `lookup_path` on its direct typed decoder. Small and low-thread
+scalar batches retain record-offset deduplication; large batches use bounded
+parallel decoding, with at most 2,048 temporary decoded values per task. Keep
+complete standard records on their compile-time-checked `maxminddb::geoip2`
+decoders. This preserves the fastest specialized routes without creating
+different schema semantics.
 
 ## Consequences
 
@@ -40,6 +42,6 @@ semantics.
 
 The committed 10,000-row repeated-fixture baseline is in
 `benchmarks/results/development-fixtures.json`. On that recorded environment,
-the fused three-field projection took 0.87 times the scalar-path median, inside
+the fused three-field projection took 0.78 times the scalar-path median, inside
 the initial 1.30 gate. Fixture results are regression references, not forecasts
 for a full production database.
