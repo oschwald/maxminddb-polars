@@ -291,9 +291,13 @@ mod tests {
 
     const CITY_DB: &str = "tests/data/test-data/GeoIP2-City-Test.mmdb";
 
-    fn city_identity() -> DatabaseIdentity {
-        let path = Path::new(CITY_DB).canonicalize().unwrap();
+    fn test_identity(path: &Path) -> DatabaseIdentity {
+        let path = path.canonicalize().unwrap();
         identity_for_path(&path).unwrap()
+    }
+
+    fn city_identity() -> DatabaseIdentity {
+        test_identity(Path::new(CITY_DB))
     }
 
     #[test]
@@ -321,13 +325,13 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let database = directory.path().join("database.mmdb");
         fs::copy(CITY_DB, &database).unwrap();
-        let old_identity = identity_for_path(&database).unwrap();
+        let old_identity = test_identity(&database);
         let old_reader = reader_for(&old_identity).unwrap();
 
         let replacement = directory.path().join("replacement.mmdb");
         fs::copy("tests/data/test-data/GeoLite2-ASN-Test.mmdb", &replacement).unwrap();
         fs::rename(&replacement, &database).unwrap();
-        let new_identity = identity_for_path(&database).unwrap();
+        let new_identity = test_identity(&database);
         let new_reader = reader_for(&new_identity).unwrap();
 
         assert!(!Arc::ptr_eq(&old_reader, &new_reader));
@@ -340,7 +344,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let database = directory.path().join("database.mmdb");
         fs::copy(CITY_DB, &database).unwrap();
-        let old_identity = identity_for_path(&database).unwrap();
+        let old_identity = test_identity(&database);
         let old_reader = reader_for(&old_identity).unwrap();
         let old_modified = fs::metadata(&database).unwrap().modified().unwrap();
 
@@ -356,7 +360,7 @@ mod tests {
             .unwrap();
         fs::rename(&replacement, &database).unwrap();
 
-        let new_identity = identity_for_path(&database).unwrap();
+        let new_identity = test_identity(&database);
         assert_eq!(old_identity.size, new_identity.size);
         assert_eq!(old_identity.modified_ns, new_identity.modified_ns);
         #[cfg(unix)]
@@ -373,7 +377,7 @@ mod tests {
         let asn_path = Path::new("tests/data/test-data/GeoLite2-ASN-Test.mmdb")
             .canonicalize()
             .unwrap();
-        let asn_identity = identity_for_path(&asn_path).unwrap();
+        let asn_identity = test_identity(&asn_path);
         let asn = Arc::new(open_snapshot(&asn_identity).unwrap());
         let mut cache = ReaderCache::default();
 
