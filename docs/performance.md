@@ -23,18 +23,24 @@ and direct Arrow/Polars Struct/List builders.
 Run:
 
 ```console
-uv run maturin develop
-uv run python benchmarks/lookups.py \
+uv run --no-sync maturin develop --release --locked
+POLARS_MAX_THREADS=1 uv run --no-sync python benchmarks/lookups.py \
   --rows 10000 \
   --repeats 7 \
+  --enforce-gates \
   --json benchmark-results.json
 ```
 
 The script measures a scalar path, three independent paths, a fused
 three-field projection, complete City/Country/Enterprise/ASN records, CPU and
 wall samples, output size, and peak process RSS. It records OS, Python, Polars,
-Rust, package, and fixture revisions. The committed development result is
+Rust, package, and fixture revisions, whether tracked source files were dirty,
+and a report schema version. Peak RSS is normalized to KiB on Linux and macOS.
+`--enforce-gates` exits unsuccessfully after writing the report if a boolean
+gate fails. The committed development result is
 [`benchmarks/results/development-fixtures.json`](../benchmarks/results/development-fixtures.json).
+The same release-mode, single-thread fixture gate runs weekly and can be
+started manually through the `Benchmark` GitHub Actions workflow.
 
 The recorded 20-worker repeated-fixture scalar and fused-partial results are
 8.33 and 10.61 million rows per second. The fused/scalar median ratio is 0.78,
@@ -54,16 +60,26 @@ POLARS_MAX_THREADS=1 uv run python benchmarks/real_city.py \
   /secure/path/GeoIP2-City.mmdb \
   --rows 50000 \
   --repeats 7 \
+  --workload repeated \
+  --enforce-gates \
   --json real-city-results.json
 ```
 
-Repeat with the intended production thread count to measure scalar scaling:
+The default `repeated` workload provides the stable fusion gate. Also run
+`--workload half` for the expected roughly 50%-unique workload and
+`--workload high` for a distinct mapped-IP stress case. Workload construction
+is excluded from the timed plans, and each report records its exact unique-IP
+count.
+
+Repeat with the intended production thread count and the desired cardinality
+to measure scalar scaling:
 
 ```console
 POLARS_MAX_THREADS=20 uv run python benchmarks/real_city.py \
   /secure/path/GeoIP2-City.mmdb \
   --rows 50000 \
   --repeats 7 \
+  --workload half \
   --json real-city-parallel-results.json
 ```
 

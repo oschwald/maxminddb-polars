@@ -58,6 +58,12 @@ use release builds and should compare the candidate against a named baseline on
 the same machine. Never commit a full licensed database or benchmark output
 containing database contents.
 
+Benchmark reports include the source revision, tracked-worktree state, report
+schema version, workload cardinality, and platform-normalized peak RSS. Use
+`--enforce-gates` for gating runs; use the explicit `repeated`, `half`, and
+`high` cardinality modes in `benchmarks/real_city.py` when evaluating lookup
+strategy changes.
+
 ## Pull requests
 
 - Keep commits focused and use imperative commit subjects.

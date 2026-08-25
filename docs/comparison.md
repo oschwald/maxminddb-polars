@@ -48,31 +48,36 @@ and
 
 ## Reproduction
 
-Install the exact tested versions into an isolated environment, arrange
+Install the project and exact tested competitor versions into one isolated
+environment, arrange
 `GeoLite2-City.mmdb` and `GeoLite2-ASN.mmdb` in the directory required by
 `polars-iptools`, and run:
 
 ```console
-python -m pip install \
+uv sync --all-extras --locked --no-install-project
+uv pip install --python .venv/bin/python \
   polars==1.43.2 \
   polars-iptools==0.2.2 \
   polars-maxminddb==0.2.3
-```
-
-Build the candidate checkout in release mode before running the comparison:
-
-```console
-uv run maturin develop --release --locked
+uv run --no-sync maturin develop --release --locked
 ```
 
 ```console
-POLARS_MAX_THREADS=1 python benchmarks/compare.py \
+POLARS_MAX_THREADS=1 uv run --no-sync python benchmarks/compare.py \
   /secure/path/GeoLite2-City.mmdb \
   /secure/path/iptools-database-directory \
   --rows 50000 \
   --repeats 5 \
   --workload high \
-  --json comparison.json
+  --json comparison-high-cardinality.json
+
+POLARS_MAX_THREADS=1 uv run --no-sync python benchmarks/compare.py \
+  /secure/path/GeoLite2-City.mmdb \
+  /secure/path/iptools-database-directory \
+  --rows 50000 \
+  --repeats 5 \
+  --workload repeated \
+  --json comparison-repeated.json
 ```
 
 The script validates populated overlapping outputs before timing and refuses
