@@ -106,6 +106,12 @@ Atomically replace an MMDB file and construct a new expression to use the
 replacement. In-place changes detected during open fail rather than silently
 mixing generations.
 
+Unix change time and file identity also distinguish same-size replacements and
+in-place rewrites whose modification time is restored. Non-Unix platforms use
+creation time and have a weaker identity: a same-size in-place rewrite with a
+restored modification time might not be detected. Prefer atomic replacement on
+all platforms.
+
 The process-wide snapshot cache retains up to 512 MiB in insertion order by
 default. Set `MAXMINDDB_POLARS_CACHE_MAX_BYTES` before the first lookup to choose
 a different non-negative byte limit. The newest snapshot is retained even when

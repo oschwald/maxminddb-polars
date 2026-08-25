@@ -280,6 +280,8 @@ fn canonical_path_string(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs::FileTimes;
+    #[cfg(not(unix))]
+    use std::time::Duration;
 
     use super::*;
 
@@ -338,6 +340,10 @@ mod tests {
         let old_reader = reader_for(&old_identity).unwrap();
         let old_modified = fs::metadata(&database).unwrap().modified().unwrap();
 
+        // Non-Unix identities use creation time rather than an inode. Ensure
+        // the replacement is created in a later filesystem clock tick.
+        #[cfg(not(unix))]
+        std::thread::sleep(Duration::from_millis(50));
         let replacement = directory.path().join("replacement.mmdb");
         fs::write(&replacement, vec![0; old_identity.size as usize]).unwrap();
         fs::File::open(&replacement)
@@ -349,7 +355,9 @@ mod tests {
         let new_identity = identity_for_path(&database).unwrap();
         assert_eq!(old_identity.size, new_identity.size);
         assert_eq!(old_identity.modified_ns, new_identity.modified_ns);
+        #[cfg(unix)]
         assert_ne!(old_identity.file_id, new_identity.file_id);
+        assert_ne!(old_identity, new_identity);
         assert!(reader_for(&new_identity).is_err());
         assert_eq!(old_reader.metadata().database_type, "GeoIP2-City");
     }
