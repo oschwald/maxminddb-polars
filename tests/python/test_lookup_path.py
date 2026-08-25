@@ -74,6 +74,7 @@ def test_parallel_dispatch_with_controlled_worker_pool() -> None:
         import maxminddb_polars as mmp
 
         database = {str(CITY_DB)!r}
+        custom_database = {str(CUSTOM_DB)!r}
         pattern = ["89.160.20.128", None, "not-an-ip", "203.0.113.1"]
 
         def lookup(values: list[str | None]) -> pl.DataFrame:
@@ -112,8 +113,48 @@ def test_parallel_dispatch_with_controlled_worker_pool() -> None:
             "SE" if value == "89.160.20.128" else None
             for value in [*first, *second]
         ]
-        assert result["country"].n_chunks() == 11
+        assert result["country"].n_chunks() == 10
         assert result["country"].to_list() == expected
+
+        fragmented = pl.concat(
+            [pl.Series("ip", ["89.160.20.128"]) for _ in range(8_192)],
+            rechunk=False,
+        )
+        assert fragmented.n_chunks() == 8_192
+        fragmented_result = pl.DataFrame([fragmented]).select(
+            mmp.lookup_path(
+                "ip", database, ["country", "iso_code"]
+            ).alias("country")
+        )
+        assert fragmented_result["country"].n_chunks() == 4
+        assert fragmented_result["country"].head(4).to_list() == ["SE"] * 4
+
+        binary_values = ["::1.1.1.0", None, "not-an-ip"] * 2_731
+        binary_result = pl.DataFrame({{"ip": binary_values}}).select(
+            mmp.lookup_path(
+                "ip",
+                custom_database,
+                ["bytes"],
+                dtype=pl.Binary,
+                strict=False,
+            ).alias("value")
+        )
+        assert binary_result["value"].to_list() == [
+            b"\\x00\\x00\\x00*", None, None
+        ] * 2_731
+
+        strict_values = ["89.160.20.128"] * 8_192
+        strict_values[4_096] = "not-an-ip"
+        try:
+            pl.DataFrame({{"ip": strict_values}}).select(
+                mmp.lookup_path(
+                    "ip", database, ["country", "iso_code"]
+                )
+            )
+        except pl.exceptions.ComputeError as error:
+            assert "invalid IP address" in str(error)
+        else:
+            raise AssertionError("parallel strict lookup accepted an invalid IP")
         """
     )
     environment = os.environ.copy()

@@ -75,7 +75,9 @@ def lookup_path(
             "dtype": None if dtype is None else normalize_dtype(dtype),
             "strict": strict,
         },
-        is_elementwise=True,
+        # Keep the logical Series together so the native plugin can coalesce
+        # tiny physical chunks into bounded parallel tasks.
+        is_elementwise=False,
     )
 
 
