@@ -7,6 +7,7 @@ import gc
 import json
 import resource
 import statistics
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,13 @@ from typing import Any
 import polars as pl
 
 import maxminddb_polars as mmp
+
+
+def _command_output(command: list[str]) -> str:
+    try:
+        return subprocess.check_output(command, text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unavailable"
 
 
 def _measure(plan: pl.LazyFrame, repeats: int) -> dict[str, Any]:
@@ -90,7 +98,9 @@ def main() -> None:
     report = {
         "database_bytes": database.stat().st_size,
         "polars": pl.__version__,
+        "polars_max_threads": pl.thread_pool_size(),
         "maxminddb_polars": mmp.__version__,
+        "git_revision": _command_output(["git", "rev-parse", "HEAD"]),
         "operations": measurements,
         "gates": {
             "partial_to_scalar_median_ratio": partial_ratio,

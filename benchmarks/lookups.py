@@ -113,6 +113,8 @@ def main() -> None:
             "python": sys.version,
             "polars": pl.__version__,
             "maxminddb_polars": mmp.__version__,
+            "polars_max_threads": pl.thread_pool_size(),
+            "git_revision": _command_output(["git", "rev-parse", "HEAD"]),
             "rustc": _command_output(["rustc", "-Vv"]),
             "database_kind": "MaxMind-DB test fixtures",
             "database_revision": _command_output(
