@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, LazyLock, RwLock};
@@ -59,8 +60,11 @@ impl ReaderCache {
 static READERS: LazyLock<RwLock<ReaderCache>> =
     LazyLock::new(|| RwLock::new(ReaderCache::default()));
 
-static CACHE_MAX_BYTES: LazyLock<Result<usize, String>> = LazyLock::new(|| {
-    let Some(value) = env::var_os(CACHE_MAX_BYTES_ENV) else {
+static CACHE_MAX_BYTES: LazyLock<Result<usize, String>> =
+    LazyLock::new(|| parse_cache_max_bytes(env::var_os(CACHE_MAX_BYTES_ENV).as_deref()));
+
+fn parse_cache_max_bytes(value: Option<&OsStr>) -> Result<usize, String> {
+    let Some(value) = value else {
         return Ok(DEFAULT_CACHE_MAX_BYTES);
     };
     let value = value
@@ -69,7 +73,7 @@ static CACHE_MAX_BYTES: LazyLock<Result<usize, String>> = LazyLock::new(|| {
     value.parse::<usize>().map_err(|error| {
         format!("{CACHE_MAX_BYTES_ENV} must be a non-negative integer number of bytes: {error}")
     })
-});
+}
 
 fn cache_max_bytes() -> PolarsResult<usize> {
     CACHE_MAX_BYTES
@@ -380,5 +384,25 @@ mod tests {
         assert!(!cache.readers.contains_key(&city_identity));
         assert!(cache.readers.contains_key(&asn_identity));
         assert_eq!(cache.bytes, asn_identity.size as usize);
+    }
+
+    #[test]
+    fn parses_the_cache_limit_contract() {
+        assert_eq!(
+            parse_cache_max_bytes(None).unwrap(),
+            DEFAULT_CACHE_MAX_BYTES
+        );
+        assert_eq!(parse_cache_max_bytes(Some(OsStr::new("0"))).unwrap(), 0);
+        assert_eq!(
+            parse_cache_max_bytes(Some(OsStr::new("1048576"))).unwrap(),
+            1_048_576
+        );
+        for value in ["-1", "not-a-number"] {
+            assert!(
+                parse_cache_max_bytes(Some(OsStr::new(value)))
+                    .unwrap_err()
+                    .contains("must be a non-negative integer number of bytes")
+            );
+        }
     }
 }
