@@ -28,19 +28,19 @@ multi-thread scalar results are recorded in [`performance.md`](performance.md).
 
 | Operation                              | 50k distinct | 4 repeated IPs |
 | -------------------------------------- | -----------: | -------------: |
-| `maxminddb-polars` scalar path         |         5.05 |           9.04 |
-| `polars-maxminddb` country             |         0.58 |           0.65 |
-| `polars-iptools.full` → country        |         1.21 |           1.48 |
-| `maxminddb-polars` fused partial       |         3.70 |           8.69 |
+| `maxminddb-polars` scalar path         |         4.90 |           9.06 |
+| `polars-maxminddb` country             |         0.58 |           0.64 |
+| `polars-iptools.full` → country        |         1.20 |           1.46 |
+| `maxminddb-polars` fused partial       |         3.61 |           7.96 |
 | three `polars-maxminddb` calls         |         0.19 |           0.22 |
-| one materialized `polars-iptools.full` |         1.20 |           1.50 |
+| one materialized `polars-iptools.full` |         1.21 |           1.50 |
 
 All country outputs were identical. Three-field values were identical on all
 fully populated rows (26,998 distinct-IP rows and 25,000 repeated-IP rows).
 Missing values are intentionally not declared identical because of the null
 versus empty/default semantic difference.
 
-Peak process RSS was 191 MiB for the distinct workload and 160 MiB for the
+Peak process RSS was 192 MiB for the distinct workload and 158 MiB for the
 repeated workload. Content-free source results are committed as
 [`comparison-high-cardinality.json`](../benchmarks/results/comparison-high-cardinality.json)
 and

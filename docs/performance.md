@@ -47,8 +47,8 @@ The same release-mode, single-thread fixture gate runs weekly and can be
 started manually through the `Benchmark` GitHub Actions workflow.
 
 The recorded single-worker repeated-fixture scalar and fused-partial results
-are 11.69 and 11.44 million rows per second. The fused/scalar median ratio is
-1.02, inside the initial 1.30 gate, and peak process RSS is 109 MiB. Tiny fixtures
+are 11.86 and 10.89 million rows per second. The fused/scalar median ratio is
+1.09, inside the initial 1.30 gate, and peak process RSS is 111 MiB. Tiny fixtures
 heavily favor record-offset deduplication and are useful for regression
 detection, not production capacity planning.
 
@@ -91,12 +91,13 @@ The result file contains metrics and database size, not database contents.
 Database files must never be committed or uploaded as workflow artifacts. Runs
 over 250,000 whole-City rows require `--allow-large-run` and should be isolated
 by an OS/container memory limit. A 33.7 MB real GeoLite2 City database was
-exercised in clean checkouts recorded by each report. With one thread and six
-repeated inputs, scalar, three-field partial, and whole-City throughput was
-10.05, 9.68, and 0.69 million rows per second; the partial/scalar ratio was 1.04
-and peak RSS was 254 MiB. With 20 threads and 25,000 unique mapped IPs among
-50,000 rows, throughput was 20.91, 4.25, and 0.27 million rows per second,
-respectively, at 425 MiB peak RSS. The parallel partial/scalar ratio is
+exercised in clean checkouts recorded by each report. With one thread, five
+repeated non-null IP values, and null rows, scalar, three-field partial, and
+whole-City throughput was 9.92, 9.59, and 0.70 million rows per second; the
+partial/scalar ratio was 1.03 and peak RSS was 252 MiB. With 20 threads and
+25,000 unique mapped IPs among 50,000 rows, throughput was 23.89, 4.36, and 0.26
+million rows per second, respectively, at 423 MiB peak RSS. The parallel
+partial/scalar ratio is
 informational because only the scalar path uses internal parallelism.
 Content-free metrics are committed as
 [`real-geolite2-city.json`](../benchmarks/results/real-geolite2-city.json) and
