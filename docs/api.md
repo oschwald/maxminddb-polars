@@ -91,12 +91,19 @@ not prove whether its source map was physically absent.
 
 ## Database updates
 
-An expression captures the canonical path, byte size, and nanosecond
-modification time. Schema planning and execution share a strong in-memory byte
-snapshot for that generation. Atomically replace an MMDB file and construct a
-new expression to use the replacement; an already planned expression continues
-to use its old snapshot. In-place changes detected during open fail rather than
-silently mixing generations.
+An expression captures the canonical path, byte size, nanosecond modification
+time, and filesystem metadata-change or creation time. Schema planning and
+execution share a strong in-memory byte snapshot for that generation.
+Atomically replace an MMDB file and construct a new expression to use the
+replacement. In-place changes detected during open fail rather than silently
+mixing generations.
+
+The process-wide snapshot cache retains up to 512 MiB in insertion order by
+default. Set `MAXMINDDB_POLARS_CACHE_MAX_BYTES` before the first lookup to choose
+a different non-negative byte limit. The newest snapshot is retained even when
+it alone exceeds the limit. An already planned expression uses its old snapshot
+while it remains cached; after eviction it either reopens unchanged bytes or
+returns an error asking the caller to reconstruct the expression.
 
 The package never downloads a database. Users are responsible for obtaining,
 updating, and licensing their MMDB files.

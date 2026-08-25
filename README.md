@@ -45,9 +45,9 @@ custom database. See
 
 Inputs must have String dtype. Null inputs, lookup misses, and missing paths
 produce null. Invalid IP strings raise by default; pass `strict=False` to turn
-them into nulls. The package owns a strong byte snapshot for each database file
-generation, so atomically replace database files and construct new expressions
-to refresh them.
+them into nulls. The package caches generation-safe byte snapshots up to a
+documented process limit, so atomically replace database files and construct new
+expressions to refresh them.
 
 ## Development
 

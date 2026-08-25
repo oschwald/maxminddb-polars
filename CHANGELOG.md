@@ -7,11 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Prevented same-path, same-size database replacements with preserved
+  modification times from reusing stale cached bytes.
+
 ### Changed
 
 - Improved scalar lookup throughput and memory use with borrowed string and
   binary decoding, Polars-native offset hashing, and bounded parallel execution
   for large batches.
+- Bounded retained MMDB reader snapshots to 512 MiB by default, with an
+  environment override and explicit errors for evicted obsolete generations.
 
 ## [0.1.2] - 2026-08-24
 
