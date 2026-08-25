@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   logical tasks without copying their values.
 - Bounded retained MMDB reader snapshots to 512 MiB by default, with an
   environment override and explicit errors for evicted obsolete generations.
+- Bounded local Rust build artifacts by disabling dev/test debug data and
+  incremental caches, and made the full local check default to one Cargo job.
 
 ## [0.1.2] - 2026-08-24
 

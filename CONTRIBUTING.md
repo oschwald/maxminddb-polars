@@ -24,6 +24,19 @@ uv run --no-sync maturin develop
 The MaxMind-DB submodule contains test fixtures. Do not commit proprietary or
 locally installed `.mmdb` databases.
 
+The default dev/test Cargo profile omits debug data and incremental caches to
+keep Polars build artifacts bounded, and `scripts/check` defaults Cargo to one
+build job. A machine with ample memory may override `CARGO_BUILD_JOBS`.
+For an investigation that needs Rust debug information and incremental state,
+opt in explicitly, for example:
+
+```console
+CARGO_PROFILE_DEV_DEBUG=1 \
+  CARGO_PROFILE_TEST_DEBUG=1 \
+  CARGO_INCREMENTAL=1 \
+  cargo test --locked
+```
+
 To enable the repository's pre-commit hook:
 
 ```console

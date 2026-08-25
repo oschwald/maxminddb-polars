@@ -49,10 +49,12 @@ settings live in [`maintaining.md`](maintaining.md).
 - Polars still pulls in unmaintained `bincode` 2.0.1. The disabled-cloud
   `quick-xml` dependency is absent from built targets. These exceptions remain
   documented and time-bounded.
-- On this development machine, a one-job debug Rust test link peaks near
-  3.1 GiB and the release build process near 1.9 GiB. Runtime comparison and
-  real-database workloads peak below 280 MiB. Local validation should keep
-  Cargo at one job when memory is constrained.
+- Full Polars debug data previously produced a 32 GiB accumulated local target
+  and a one-job test link near 3.1 GiB. The bounded dev/test profile disables
+  debug data and incremental caches; a fresh no-run test target was 1.8 GiB.
+  A cold Polars compile can still exceed a 2.5 GiB cgroup, so constrained local
+  validation should keep Cargo at one job and allow roughly 3.5 GiB. The
+  50%-unique 50,000-row City benchmark peaked near 425 MiB.
 - External performance comparisons are informational rather than release gates;
   the current pinned results and semantic differences are documented in
   [`comparison.md`](comparison.md).
