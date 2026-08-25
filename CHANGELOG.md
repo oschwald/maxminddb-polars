@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Improved scalar lookup throughput and memory use with borrowed string and
   binary decoding, Polars-native offset hashing, and bounded parallel execution
-  for large batches.
+  for large batches, including coalescing highly fragmented inputs into bounded
+  logical tasks without copying their values.
 - Bounded retained MMDB reader snapshots to 512 MiB by default, with an
   environment override and explicit errors for evicted obsolete generations.
 

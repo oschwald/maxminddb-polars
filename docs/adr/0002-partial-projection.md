@@ -25,9 +25,10 @@ leaf rather than once per input row.
 
 Keep scalar `lookup_path` on its direct typed decoder. Small and low-thread
 scalar batches retain record-offset deduplication; large batches use bounded
-parallel decoding, with at most 2,048 temporary decoded values per task. Keep
-complete standard records on their compile-time-checked `maxminddb::geoip2`
-decoders. This preserves the fastest specialized routes without creating
+parallel decoding, with at most 2,048 temporary decoded values per task.
+Adjacent physical chunks share bounded tasks without copying or rechunking
+their values. Keep complete standard records on their compile-time-checked
+`maxminddb::geoip2` decoders. This preserves the fastest specialized routes without creating
 different schema semantics.
 
 ## Consequences

@@ -12,8 +12,9 @@ Scalar paths use concrete typed builders; string and binary values borrow from
 the database while Arrow output is built. Batches below 8,192 rows, or with at
 most two Polars workers, decode each unique record offset once. Larger scalar
 batches decode in parallel with no IP cache and cap every task's temporary
-decoded values at 2,048 rows. Existing input chunks are preserved rather than
-rechunked. Complete standard records use typed `maxminddb::geoip2` decoders.
+decoded values at 2,048 rows. Adjacent physical input chunks are coalesced into
+those logical tasks without copying or rechunking the IP values. Complete
+standard records use typed `maxminddb::geoip2` decoders.
 Partial/custom records and nested paths use the shared schema projection tree
 and direct Arrow/Polars Struct/List builders.
 
