@@ -1211,8 +1211,11 @@ dependencies = [
  "maxminddb",
  "polars",
  "polars-arrow",
+ "polars-core",
+ "polars-utils",
  "pyo3",
  "pyo3-polars",
+ "rayon",
  "serde",
  "serde_json",
 ]
