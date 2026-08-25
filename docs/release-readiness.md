@@ -68,3 +68,22 @@ repository upload tokens.
 `v0.1.1` corrected links in the PyPI description and hardened release
 verification. `v0.1.2` moved to Polars 0.55 and PyO3 0.29, resolving the two
 PyO3 security advisories accepted for the initial release.
+
+## Unreleased validation on 2026-08-25
+
+The post-`0.1.2` roadmap branch completed a no-publish rehearsal under a
+3.5 GiB cgroup with swap disabled and one Cargo build job:
+
+- `scripts/check` passed all repository formatting, lint, type, metadata,
+  lockfile, submodule, documentation, 30 Rust test, and 67 Python test gates.
+- `cargo publish --dry-run --locked --allow-dirty` packaged and compiled the
+  crate; the upload step was intentionally aborted by Cargo's dry-run mode.
+- A locked release wheel and sdist passed repository content inspection and
+  strict Twine metadata checks.
+- The wheel installed into a clean Python 3.13/Polars 1.43.2 environment and
+  passed streaming City and inferred IP Risk lookups outside the checkout.
+- The sdist performed a cold release build, peaking near 2.75 GiB, then
+  installed into a separate clean environment and passed an external City
+  lookup.
+
+No tag, GitHub release, registry upload, or publication was created.
