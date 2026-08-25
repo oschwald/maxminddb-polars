@@ -354,7 +354,9 @@ mod tests {
         std::thread::sleep(Duration::from_millis(50));
         let replacement = directory.path().join("replacement.mmdb");
         fs::write(&replacement, vec![0; old_identity.size as usize]).unwrap();
-        fs::File::open(&replacement)
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&replacement)
             .unwrap()
             .set_times(FileTimes::new().set_modified(old_modified))
             .unwrap();
