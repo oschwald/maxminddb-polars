@@ -40,7 +40,7 @@ jobs:
           toolchain: stable
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       - run: uv sync --all-extras --locked --no-install-project
-      - run: uv run --no-sync maturin develop --release --locked
+      - run: CARGO_BUILD_JOBS=1 uv run --no-sync maturin develop --release --locked
       - name: Run benchmark
         env:
           BENCHMARK_REPEATS: ${{ inputs.repeats || '7' }}
