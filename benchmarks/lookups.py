@@ -5,24 +5,22 @@ from __future__ import annotations
 import argparse
 import json
 import platform
-import resource
 import statistics
-import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
 import polars as pl
+from _common import (
+    REPORT_SCHEMA_VERSION,
+    command_output,
+    failed_gates,
+    peak_rss_kib,
+    source_provenance,
+)
 
 import maxminddb_polars as mmp
-
-
-def _command_output(command: list[str]) -> str:
-    try:
-        return subprocess.check_output(command, text=True).strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unavailable"
 
 
 def _operations(database_dir: Path, rows: int) -> dict[str, pl.LazyFrame]:
@@ -95,6 +93,7 @@ def main() -> None:
         default=Path(__file__).parents[1] / "tests" / "data" / "test-data",
     )
     parser.add_argument("--json", type=Path)
+    parser.add_argument("--enforce-gates", action="store_true")
     args = parser.parse_args()
     if args.rows <= 0 or args.repeats <= 0:
         parser.error("--rows and --repeats must be positive")
@@ -106,7 +105,12 @@ def main() -> None:
     partial_ratio = (
         operations["partial"]["median_seconds"] / operations["scalar"]["median_seconds"]
     )
+    gates = {
+        "partial_to_scalar_median_ratio": partial_ratio,
+        "partial_within_30_percent_of_scalar": partial_ratio <= 1.3,
+    }
     report = {
+        "schema_version": REPORT_SCHEMA_VERSION,
         "environment": {
             "platform": platform.platform(),
             "processor": platform.processor() or "unavailable",
@@ -114,24 +118,24 @@ def main() -> None:
             "polars": pl.__version__,
             "maxminddb_polars": mmp.__version__,
             "polars_max_threads": pl.thread_pool_size(),
-            "git_revision": _command_output(["git", "rev-parse", "HEAD"]),
-            "rustc": _command_output(["rustc", "-Vv"]),
+            **source_provenance(),
+            "rustc": command_output(["rustc", "-Vv"]),
             "database_kind": "MaxMind-DB test fixtures",
-            "database_revision": _command_output(
+            "database_revision": command_output(
                 ["git", "-C", str(args.database_dir.parent), "rev-parse", "HEAD"]
             ),
         },
         "operations": operations,
-        "gates": {
-            "partial_to_scalar_median_ratio": partial_ratio,
-            "partial_within_30_percent_of_scalar": partial_ratio <= 1.3,
-        },
-        "peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+        "gates": gates,
+        "peak_rss_kib": peak_rss_kib(),
     }
     encoded = json.dumps(report, indent=2) + "\n"
     print(encoded, end="")
     if args.json is not None:
         args.json.write_text(encoded)
+    failures = failed_gates(gates)
+    if args.enforce_gates and failures:
+        raise SystemExit(f"benchmark gates failed: {', '.join(failures)}")
 
 
 if __name__ == "__main__":

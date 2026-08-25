@@ -5,23 +5,21 @@ from __future__ import annotations
 import argparse
 import gc
 import json
-import resource
 import statistics
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
 
 import polars as pl
+from _common import (
+    REPORT_SCHEMA_VERSION,
+    failed_gates,
+    mapped_ip_frame,
+    peak_rss_kib,
+    source_provenance,
+)
 
 import maxminddb_polars as mmp
-
-
-def _command_output(command: list[str]) -> str:
-    try:
-        return subprocess.check_output(command, text=True).strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unavailable"
 
 
 def _measure(plan: pl.LazyFrame, repeats: int) -> dict[str, Any]:
@@ -50,13 +48,36 @@ def _measure(plan: pl.LazyFrame, repeats: int) -> dict[str, Any]:
     }
 
 
+def _workload_frame(database: Path, rows: int, workload: str) -> pl.LazyFrame:
+    if workload == "high":
+        return mapped_ip_frame(database, rows)
+    if workload == "half":
+        unique = mapped_ip_frame(database, (rows + 1) // 2).collect()["ip"].to_list()
+        return pl.DataFrame({"ip": (unique * 2)[:rows]}).lazy()
+
+    samples = [
+        "81.2.69.142",
+        "128.101.101.101",
+        "8.8.8.8",
+        "2001:4860:4860::8888",
+        None,
+        "203.0.113.1",
+    ]
+    ips = (samples * ((rows + len(samples) - 1) // len(samples)))[:rows]
+    return pl.DataFrame({"ip": ips}).lazy()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("database", type=Path)
     parser.add_argument("--rows", type=int, default=50_000)
     parser.add_argument("--repeats", type=int, default=5)
+    parser.add_argument(
+        "--workload", choices=["repeated", "half", "high"], default="repeated"
+    )
     parser.add_argument("--allow-large-run", action="store_true")
     parser.add_argument("--json", type=Path)
+    parser.add_argument("--enforce-gates", action="store_true")
     args = parser.parse_args()
     if args.rows <= 0 or args.repeats <= 0:
         parser.error("--rows and --repeats must be positive")
@@ -67,16 +88,8 @@ def main() -> None:
         )
 
     database = args.database.expanduser().resolve(strict=True)
-    samples = [
-        "81.2.69.142",
-        "128.101.101.101",
-        "8.8.8.8",
-        "2001:4860:4860::8888",
-        None,
-        "203.0.113.1",
-    ]
-    ips = (samples * ((args.rows + len(samples) - 1) // len(samples)))[: args.rows]
-    frame = pl.DataFrame({"ip": ips}).lazy()
+    frame = _workload_frame(database, args.rows, args.workload)
+    unique_ips = frame.select(pl.col("ip").n_unique()).collect().item()
     partial: dict[str, Any] = {
         "country": {"iso_code": pl.String},
         "location": {"latitude": pl.Float64, "longitude": pl.Float64},
@@ -95,23 +108,31 @@ def main() -> None:
         measurements["partial"]["median_seconds"]
         / measurements["scalar"]["median_seconds"]
     )
+    gates = {
+        "partial_to_scalar_median_ratio": partial_ratio,
+        "partial_within_30_percent_of_scalar": partial_ratio <= 1.3,
+    }
     report = {
+        "schema_version": REPORT_SCHEMA_VERSION,
         "database_bytes": database.stat().st_size,
         "polars": pl.__version__,
         "polars_max_threads": pl.thread_pool_size(),
         "maxminddb_polars": mmp.__version__,
-        "git_revision": _command_output(["git", "rev-parse", "HEAD"]),
+        **source_provenance(),
+        "workload": args.workload,
+        "rows": args.rows,
+        "unique_ips": unique_ips,
         "operations": measurements,
-        "gates": {
-            "partial_to_scalar_median_ratio": partial_ratio,
-            "partial_within_30_percent_of_scalar": partial_ratio <= 1.3,
-        },
-        "peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+        "gates": gates,
+        "peak_rss_kib": peak_rss_kib(),
     }
     encoded = json.dumps(report, indent=2) + "\n"
     print(encoded, end="")
     if args.json is not None:
         args.json.write_text(encoded)
+    failures = failed_gates(gates)
+    if args.enforce_gates and failures:
+        raise SystemExit(f"benchmark gates failed: {', '.join(failures)}")
 
 
 if __name__ == "__main__":
