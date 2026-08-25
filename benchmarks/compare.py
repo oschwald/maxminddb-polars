@@ -21,6 +21,7 @@ from _common import (
     mapped_ip_frame,
     peak_rss_kib,
     source_provenance,
+    workload_cardinality,
 )
 
 import maxminddb_polars as mmp
@@ -165,11 +166,12 @@ def main() -> None:
         if args.workload == "high"
         else _repeated_frame(args.rows)
     )
-    unique_ips = frame.select(pl.col("ip").n_unique()).collect().item()
+    cardinality = workload_cardinality(frame)
     plans = _plans(frame, database, polars_maxminddb, polars_iptools)
     complete_rows = _validate_outputs(plans)
     measurements = {
-        name: _measure(plan, args.repeats, args.rows) for name, plan in plans.items()
+        name: _measure(plan, args.repeats, cardinality["rows"])
+        for name, plan in plans.items()
     }
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
@@ -185,8 +187,7 @@ def main() -> None:
             **source_provenance(),
         },
         "workload": args.workload,
-        "rows": args.rows,
-        "unique_ips": unique_ips,
+        **cardinality,
         "validation": {
             "country_outputs_equal": True,
             "fully_populated_three_field_outputs_equal": True,

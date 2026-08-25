@@ -18,17 +18,20 @@ from _common import (
     failed_gates,
     peak_rss_kib,
     source_provenance,
+    workload_cardinality,
 )
 
 import maxminddb_polars as mmp
 
 
-def _operations(database_dir: Path, rows: int) -> dict[str, pl.LazyFrame]:
-    def frame(ip: str, adjacent: str) -> pl.LazyFrame:
-        ips = [ip, adjacent, None, "203.0.113.1"]
-        return pl.DataFrame({"ip": (ips * ((rows + 3) // 4))[:rows]}).lazy()
+def _fixture_frame(ip: str, adjacent: str, rows: int) -> pl.LazyFrame:
+    ips = [ip, adjacent, None, "203.0.113.1"]
+    return pl.DataFrame({"ip": (ips * ((rows + 3) // 4))[:rows]}).lazy()
 
-    city_frame = frame("89.160.20.128", "89.160.20.129")
+
+def _operations(
+    database_dir: Path, rows: int, city_frame: pl.LazyFrame
+) -> dict[str, pl.LazyFrame]:
     city = database_dir / "GeoIP2-City-Test.mmdb"
     partial: dict[str, Any] = {
         "country": {"iso_code": pl.String},
@@ -50,12 +53,12 @@ def _operations(database_dir: Path, rows: int) -> dict[str, pl.LazyFrame]:
         "country": city_frame.select(
             mmp.lookup("ip", database_dir / "GeoIP2-Country-Test.mmdb").alias("record")
         ),
-        "enterprise": frame("::2.125.160.216", "::2.125.160.217").select(
+        "enterprise": _fixture_frame("::2.125.160.216", "::2.125.160.217", rows).select(
             mmp.lookup("ip", database_dir / "GeoIP2-Enterprise-Test.mmdb").alias(
                 "record"
             )
         ),
-        "asn": frame("1.0.0.0", "1.0.0.1").select(
+        "asn": _fixture_frame("1.0.0.0", "1.0.0.1", rows).select(
             mmp.lookup("ip", database_dir / "GeoLite2-ASN-Test.mmdb").alias("record")
         ),
     }
@@ -98,9 +101,10 @@ def main() -> None:
     if args.rows <= 0 or args.repeats <= 0:
         parser.error("--rows and --repeats must be positive")
 
+    city_frame = _fixture_frame("89.160.20.128", "89.160.20.129", args.rows)
     operations = {
         name: _benchmark(plan, args.repeats)
-        for name, plan in _operations(args.database_dir, args.rows).items()
+        for name, plan in _operations(args.database_dir, args.rows, city_frame).items()
     }
     partial_ratio = (
         operations["partial"]["median_seconds"] / operations["scalar"]["median_seconds"]
@@ -111,6 +115,8 @@ def main() -> None:
     }
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
+        "workload": "repeated",
+        **workload_cardinality(city_frame),
         "environment": {
             "platform": platform.platform(),
             "processor": platform.processor() or "unavailable",

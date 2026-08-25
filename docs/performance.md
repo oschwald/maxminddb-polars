@@ -38,7 +38,8 @@ wall samples, output size, and peak process RSS. It records OS, Python, Polars,
 Rust, package, and fixture revisions, whether tracked source files were dirty,
 and a report schema version. `git_dirty` is `true` or `false` when Git status is
 available and `null` when it cannot be determined. Peak RSS is normalized to
-KiB on Linux and macOS.
+KiB on Linux and macOS. Every report records its workload, total rows, distinct
+non-null IP strings, and null input rows.
 `--enforce-gates` exits unsuccessfully after writing the report if a boolean
 gate fails. The committed development result is
 [`benchmarks/results/development-fixtures.json`](../benchmarks/results/development-fixtures.json).
@@ -71,8 +72,8 @@ POLARS_MAX_THREADS=1 uv run python benchmarks/real_city.py \
 The default `repeated` workload provides the stable fusion gate. Also run
 `--workload half` for the expected roughly 50%-unique workload and
 `--workload high` for a distinct mapped-IP stress case. Workload construction
-is excluded from the timed plans, and each report records its exact unique-IP
-count.
+is excluded from the timed plans, and each report records its exact non-null
+unique-IP and null-row counts.
 
 Repeat with the intended production thread count and the desired cardinality
 to measure scalar scaling:

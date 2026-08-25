@@ -17,6 +17,7 @@ from _common import (
     mapped_ip_frame,
     peak_rss_kib,
     source_provenance,
+    workload_cardinality,
 )
 
 import maxminddb_polars as mmp
@@ -89,7 +90,7 @@ def main() -> None:
 
     database = args.database.expanduser().resolve(strict=True)
     frame = _workload_frame(database, args.rows, args.workload)
-    unique_ips = frame.select(pl.col("ip").n_unique()).collect().item()
+    cardinality = workload_cardinality(frame)
     partial: dict[str, Any] = {
         "country": {"iso_code": pl.String},
         "location": {"latitude": pl.Float64, "longitude": pl.Float64},
@@ -120,8 +121,7 @@ def main() -> None:
         "maxminddb_polars": mmp.__version__,
         **source_provenance(),
         "workload": args.workload,
-        "rows": args.rows,
-        "unique_ips": unique_ips,
+        **cardinality,
         "operations": measurements,
         "gates": gates,
         "peak_rss_kib": peak_rss_kib(),

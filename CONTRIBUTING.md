@@ -72,7 +72,8 @@ the same machine. Never commit a full licensed database or benchmark output
 containing database contents.
 
 Benchmark reports include the source revision, tracked-worktree state, report
-schema version, workload cardinality, and platform-normalized peak RSS. Use
+schema version, workload, row count, distinct non-null IP count, null-row count,
+and platform-normalized peak RSS. Use
 `--enforce-gates` for gating runs; use the explicit `repeated`, `half`, and
 `high` cardinality modes in `benchmarks/real_city.py` when evaluating lookup
 strategy changes.

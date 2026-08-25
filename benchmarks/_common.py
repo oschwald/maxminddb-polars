@@ -67,6 +67,24 @@ def mapped_ip_frame(database: Path, rows: int) -> pl.LazyFrame:
     return found.lazy()
 
 
+def workload_cardinality(frame: pl.LazyFrame) -> dict[str, int]:
+    """Count rows, distinct non-null IP strings, and null input rows."""
+    rows, unique_ips, null_rows = (
+        frame.select(
+            pl.len().alias("rows"),
+            pl.col("ip").drop_nulls().n_unique().alias("unique_ips"),
+            pl.col("ip").null_count().alias("null_rows"),
+        )
+        .collect()
+        .row(0)
+    )
+    return {
+        "rows": int(rows),
+        "unique_ips": int(unique_ips),
+        "null_rows": int(null_rows),
+    }
+
+
 def failed_gates(gates: dict[str, Any]) -> list[str]:
     """Return the names of failed boolean benchmark gates."""
     return [
