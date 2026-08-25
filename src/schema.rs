@@ -371,6 +371,43 @@ fn anonymous_ip_schema() -> SchemaSpec {
     )
 }
 
+fn residential_proxy_schema() -> SchemaSpec {
+    struct_(vec![
+        field("anonymizer_confidence", SchemaSpec::UInt16),
+        field("network_last_seen", SchemaSpec::String),
+        field("provider_name", SchemaSpec::String),
+    ])
+}
+
+fn anonymous_plus_schema() -> SchemaSpec {
+    let SchemaSpec::Struct { mut fields } = anonymous_ip_schema() else {
+        unreachable!()
+    };
+    fields.extend([
+        field("anonymizer_confidence", SchemaSpec::UInt16),
+        field("network_last_seen", SchemaSpec::String),
+        field("provider_name", SchemaSpec::String),
+    ]);
+    struct_(fields)
+}
+
+fn ip_risk_schema() -> SchemaSpec {
+    let SchemaSpec::Struct { mut fields } = anonymous_plus_schema() else {
+        unreachable!()
+    };
+    fields.insert(0, field("ip_risk", SchemaSpec::Float64));
+    struct_(fields)
+}
+
+fn user_count_schema() -> SchemaSpec {
+    struct_(
+        ["ipv4_24", "ipv4_32", "ipv6_32", "ipv6_48", "ipv6_64"]
+            .into_iter()
+            .map(|name| field(name, SchemaSpec::UInt32))
+            .collect(),
+    )
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum KnownRecord {
     City,
@@ -426,16 +463,24 @@ pub fn known_record(reader: &CachedReader) -> Option<KnownRecord> {
 }
 
 pub fn known_schema(database_type: &str) -> Option<SchemaSpec> {
-    KnownRecord::from_database_type(database_type).map(KnownRecord::schema)
+    match database_type {
+        "GeoIP-Residential-Proxy" => Some(residential_proxy_schema()),
+        "GeoIP-Anonymous-Plus" => Some(anonymous_plus_schema()),
+        "GeoIP2-IP-Risk" => Some(ip_risk_schema()),
+        "GeoIP2-Static-IP-Score" => Some(struct_(vec![field("score", SchemaSpec::Float64)])),
+        "GeoIP2-User-Count" => Some(user_count_schema()),
+        _ => KnownRecord::from_database_type(database_type).map(KnownRecord::schema),
+    }
 }
 
 pub fn resolve_record_dtype(
     reader: &CachedReader,
     explicit: Option<&SchemaSpec>,
 ) -> PolarsResult<(SchemaSpec, Option<KnownRecord>)> {
-    let known = known_record(reader);
-    match (explicit, known) {
-        (None, Some(record)) => Ok((record.schema(), Some(record))),
+    let known_record = known_record(reader);
+    let known_schema = known_schema(&reader.metadata().database_type);
+    match (explicit, known_schema) {
+        (None, Some(schema)) => Ok((schema, known_record)),
         (None, None) => {
             let database_type = &reader.metadata().database_type;
             polars_bail!(
@@ -443,11 +488,11 @@ pub fn resolve_record_dtype(
                 "whole-record dtype cannot be inferred for MMDB database_type {database_type:?}; pass a Struct dtype explicitly"
             )
         }
-        (Some(explicit @ SchemaSpec::Struct { .. }), known) => {
-            if let Some(record) = known {
-                validate_partial_schema(explicit, &record.schema(), &mut Vec::new())?;
+        (Some(explicit @ SchemaSpec::Struct { .. }), known_schema) => {
+            if let Some(schema) = known_schema {
+                validate_partial_schema(explicit, &schema, &mut Vec::new())?;
             }
-            Ok((explicit.clone(), known))
+            Ok((explicit.clone(), known_record))
         }
         (Some(explicit), _) => {
             polars_bail!(
@@ -544,6 +589,24 @@ mod tests {
     }
 
     #[test]
+    fn maps_newer_products_without_typed_record_decoders() {
+        let cases = [
+            ("GeoIP-Residential-Proxy", residential_proxy_schema()),
+            ("GeoIP-Anonymous-Plus", anonymous_plus_schema()),
+            ("GeoIP2-IP-Risk", ip_risk_schema()),
+            (
+                "GeoIP2-Static-IP-Score",
+                struct_(vec![field("score", SchemaSpec::Float64)]),
+            ),
+            ("GeoIP2-User-Count", user_count_schema()),
+        ];
+        for (database_type, expected) in cases {
+            assert_eq!(known_schema(database_type), Some(expected));
+            assert_eq!(KnownRecord::from_database_type(database_type), None);
+        }
+    }
+
+    #[test]
     fn schema_spec_round_trips_through_kwargs_json() {
         let dtype = struct_(vec![field(
             "values",
@@ -586,6 +649,8 @@ mod tests {
     fn maps_only_exact_known_database_types() {
         assert!(known_schema("GeoIP2-City").is_some());
         assert!(known_schema("GeoIP2-City-Shield").is_some());
+        assert!(known_schema("GeoIP2-IP-Risk").is_some());
         assert!(known_schema("custom-City").is_none());
+        assert!(known_schema("custom-IP-Risk").is_none());
     }
 }

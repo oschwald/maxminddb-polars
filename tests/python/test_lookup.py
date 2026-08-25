@@ -26,6 +26,34 @@ def _first_ip(source: str) -> str:
     return str(ipaddress.ip_network(network).network_address)
 
 
+NEW_STANDARD_FIXTURES = [
+    (
+        "GeoIP-Residential-Proxy-Test.mmdb",
+        "GeoIP-Residential-Proxy-Test.json",
+        mmp.schemas.RESIDENTIAL_PROXY,
+    ),
+    (
+        "GeoIP-Anonymous-Plus-Test.mmdb",
+        "GeoIP-Anonymous-Plus-Test.json",
+        mmp.schemas.ANONYMOUS_PLUS,
+    ),
+    (
+        "GeoIP2-IP-Risk-Test.mmdb",
+        "GeoIP2-IP-Risk-Test.json",
+        mmp.schemas.IP_RISK,
+    ),
+    (
+        "GeoIP2-Static-IP-Score-Test.mmdb",
+        "GeoIP2-Static-IP-Score-Test.json",
+        mmp.schemas.STATIC_IP_SCORE,
+    ),
+    (
+        "GeoIP2-User-Count-Test.mmdb",
+        "GeoIP2-User-Count-Test.json",
+        mmp.schemas.USER_COUNT,
+    ),
+]
+
 STANDARD_FIXTURES = [
     ("GeoIP2-City-Test.mmdb", "GeoIP2-City-Test.json", mmp.schemas.CITY),
     ("GeoLite2-City-Test.mmdb", "GeoLite2-City-Test.json", mmp.schemas.CITY),
@@ -75,6 +103,7 @@ STANDARD_FIXTURES = [
     ),
     ("GeoIP2-Domain-Test.mmdb", "GeoIP2-Domain-Test.json", mmp.schemas.DOMAIN),
     ("GeoLite2-ASN-Test.mmdb", "GeoLite2-ASN-Test.json", mmp.schemas.ASN),
+    *NEW_STANDARD_FIXTURES,
 ]
 
 
@@ -89,6 +118,97 @@ def test_every_standard_fixture_has_a_stable_materialized_schema(
     assert result.schema == {"record": dtype}
     assert result.item(0, 0) is None
     assert result.item(1, 0) is not None
+
+
+@pytest.mark.parametrize(("database", "source", "dtype"), NEW_STANDARD_FIXTURES)
+def test_newer_product_records_match_the_source_fixture(
+    database: str, source: str, dtype: pl.Struct
+) -> None:
+    records: list[dict[str, dict[str, object]]] = json.loads(
+        (SOURCES / source).read_text(encoding="utf-8")
+    )
+    network, expected = next(iter(records[0].items()))
+    ip = str(ipaddress.ip_network(network).network_address)
+
+    result = pl.DataFrame({"ip": [ip]}).select(
+        mmp.lookup("ip", DATABASES / database).alias("record")
+    )
+
+    actual = result.item()
+    assert result.schema == {"record": dtype}
+    assert set(actual) == {field.name for field in dtype.fields}
+    assert {name: actual[name] for name in expected} == expected
+
+
+@pytest.mark.parametrize(
+    ("database", "ip", "path", "dtype", "expected"),
+    [
+        (
+            "GeoIP-Residential-Proxy-Test.mmdb",
+            "1.2.0.4",
+            ["anonymizer_confidence"],
+            pl.UInt16,
+            82,
+        ),
+        (
+            "GeoIP-Anonymous-Plus-Test.mmdb",
+            "1.2.0.1",
+            ["provider_name"],
+            pl.String,
+            "foo",
+        ),
+        (
+            "GeoIP2-IP-Risk-Test.mmdb",
+            "::214.2.3.0",
+            ["ip_risk"],
+            pl.Float64,
+            25.0,
+        ),
+        (
+            "GeoIP2-Static-IP-Score-Test.mmdb",
+            "::1.0.0.0",
+            ["score"],
+            pl.Float64,
+            0.01,
+        ),
+        (
+            "GeoIP2-User-Count-Test.mmdb",
+            "::1.2.3.4",
+            ["ipv4_32"],
+            pl.UInt32,
+            3,
+        ),
+    ],
+)
+def test_newer_product_paths_infer_leaf_dtypes(
+    database: str,
+    ip: str,
+    path: list[str],
+    dtype: pl.DataType | type[pl.DataType],
+    expected: object,
+) -> None:
+    result = pl.DataFrame({"ip": [ip]}).select(
+        mmp.lookup_path("ip", DATABASES / database, path).alias("value")
+    )
+
+    assert result.schema == {"value": dtype}
+    assert result.item() == expected
+
+
+def test_newer_known_schema_validates_partial_dtypes() -> None:
+    database = DATABASES / "GeoIP2-IP-Risk-Test.mmdb"
+    frame = pl.DataFrame({"ip": ["::214.2.3.0"]}).lazy()
+
+    valid = frame.select(
+        mmp.lookup("ip", database, dtype={"ip_risk": pl.Float64}).alias("record")
+    ).collect()
+    assert valid.item() == {"ip_risk": 25.0}
+
+    invalid = frame.select(
+        mmp.lookup("ip", database, dtype={"ip_risk": pl.String}).alias("record")
+    )
+    with pytest.raises(pl.exceptions.ComputeError, match="does not match"):
+        invalid.collect_schema()
 
 
 @pytest.mark.parametrize("engine", ["auto", "streaming"])
@@ -199,9 +319,9 @@ def test_same_size_and_mtime_replacement_is_a_new_generation(
     database = tmp_path / "database.mmdb"
     shutil.copy2(DATABASES / "GeoIP2-City-Test.mmdb", database)
     frame = pl.DataFrame({"ip": ["89.160.20.128"]})
-    old_expression = mmp.lookup_path(
-        "ip", database, ["country", "iso_code"]
-    ).alias("country")
+    old_expression = mmp.lookup_path("ip", database, ["country", "iso_code"]).alias(
+        "country"
+    )
     assert frame.select(old_expression).item() == "SE"
     original = database.stat()
 
@@ -211,8 +331,8 @@ def test_same_size_and_mtime_replacement_is_a_new_generation(
     os.replace(replacement, database)
 
     assert frame.select(old_expression).item() == "SE"
-    new_expression = mmp.lookup_path(
-        "ip", database, ["country", "iso_code"]
-    ).alias("country")
+    new_expression = mmp.lookup_path("ip", database, ["country", "iso_code"]).alias(
+        "country"
+    )
     with pytest.raises(pl.exceptions.ComputeError, match="could not open MMDB"):
         frame.select(new_expression)

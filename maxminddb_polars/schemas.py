@@ -120,6 +120,26 @@ ANONYMOUS_IP = _struct(
     is_residential_proxy=pl.Boolean,
     is_tor_exit_node=pl.Boolean,
 )
+RESIDENTIAL_PROXY = _struct(
+    anonymizer_confidence=pl.UInt16,
+    network_last_seen=pl.String,
+    provider_name=pl.String,
+)
+ANONYMOUS_PLUS = pl.Struct(
+    [
+        *ANONYMOUS_IP.fields,
+        *RESIDENTIAL_PROXY.fields,
+    ]
+)
+IP_RISK = pl.Struct([pl.Field("ip_risk", pl.Float64), *ANONYMOUS_PLUS.fields])
+STATIC_IP_SCORE = _struct(score=pl.Float64)
+USER_COUNT = _struct(
+    ipv4_24=pl.UInt32,
+    ipv4_32=pl.UInt32,
+    ipv6_32=pl.UInt32,
+    ipv6_48=pl.UInt32,
+    ipv6_64=pl.UInt32,
+)
 DENSITY_INCOME = _struct(
     average_income=pl.UInt32,
     population_density=pl.UInt32,
@@ -132,6 +152,7 @@ ASN = _struct(
 
 __all__ = [
     "ANONYMOUS_IP",
+    "ANONYMOUS_PLUS",
     "ASN",
     "CITY",
     "CONNECTION_TYPE",
@@ -139,5 +160,9 @@ __all__ = [
     "DENSITY_INCOME",
     "DOMAIN",
     "ENTERPRISE",
+    "IP_RISK",
     "ISP",
+    "RESIDENTIAL_PROXY",
+    "STATIC_IP_SCORE",
+    "USER_COUNT",
 ]
