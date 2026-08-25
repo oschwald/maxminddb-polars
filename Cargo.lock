@@ -1229,6 +1229,7 @@ dependencies = [
  "maxminddb",
  "polars",
  "polars-arrow",
+ "polars-utils",
  "proptest",
  "pyo3",
  "pyo3-polars",

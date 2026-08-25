@@ -1,10 +1,10 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::net::IpAddr;
 
 use maxminddb::LookupResult;
 use polars::prelude::*;
 use polars_arrow::bitmap::Bitmap;
+use polars_utils::aliases::{InitHashMaps, PlHashMap};
 use serde::Deserialize;
 
 use crate::cache::{CachedReader, DatabaseIdentity, reader_for};
@@ -143,7 +143,7 @@ fn lookup_batch_inner<'a>(
     database: &DatabaseIdentity,
     strict: bool,
 ) -> PolarsResult<LookupBatch<'a>> {
-    let mut offsets = HashMap::<usize, usize>::new();
+    let mut offsets = PlHashMap::<usize, usize>::new();
     let mut unique = Vec::new();
     let mut rows = Vec::with_capacity(ips.len());
 
