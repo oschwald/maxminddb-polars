@@ -9,6 +9,8 @@ use polars_utils::aliases::{InitHashMaps, PlHashMap};
 use rayon::prelude::*;
 use serde::Deserialize;
 
+#[cfg(test)]
+use crate::cache::identity_for_path;
 use crate::cache::{CachedReader, DatabaseIdentity, reader_for};
 use crate::guard::catch_mmdb_unwind;
 use crate::known::decode_known;
@@ -568,7 +570,6 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::path::Path;
-    use std::time::UNIX_EPOCH;
 
     use base64::Engine;
     use maxminddb::Reader;
@@ -580,19 +581,7 @@ mod tests {
 
     fn identity(path: &str) -> DatabaseIdentity {
         let path = Path::new(path).canonicalize().unwrap();
-        let metadata = fs::metadata(&path).unwrap();
-        DatabaseIdentity {
-            canonical_path: path.to_string_lossy().into_owned(),
-            size: metadata.len(),
-            modified_ns: metadata
-                .modified()
-                .unwrap()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-                .try_into()
-                .unwrap(),
-        }
+        identity_for_path(&path).unwrap()
     }
 
     fn kwargs(strict: bool) -> LookupPathKwargs {

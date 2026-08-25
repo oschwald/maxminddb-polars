@@ -29,6 +29,7 @@ def _database_identity(database: str | Path) -> dict[str, str | int]:
         "canonical_path": str(path),
         "size": stat.st_size,
         "modified_ns": stat.st_mtime_ns,
+        "changed_ns": stat.st_ctime_ns,
     }
 
 

@@ -191,3 +191,28 @@ def test_planned_expression_keeps_its_snapshot_after_atomic_replacement(
         .select(mmp.lookup("ip", database).alias("record"))
     )
     assert new_query.collect_schema() == {"record": mmp.schemas.COUNTRY}
+
+
+def test_same_size_and_mtime_replacement_is_a_new_generation(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "database.mmdb"
+    shutil.copy2(DATABASES / "GeoIP2-City-Test.mmdb", database)
+    frame = pl.DataFrame({"ip": ["89.160.20.128"]})
+    old_expression = mmp.lookup_path(
+        "ip", database, ["country", "iso_code"]
+    ).alias("country")
+    assert frame.select(old_expression).item() == "SE"
+    original = database.stat()
+
+    replacement = tmp_path / "replacement.mmdb"
+    replacement.write_bytes(bytes(original.st_size))
+    os.utime(replacement, ns=(original.st_atime_ns, original.st_mtime_ns))
+    os.replace(replacement, database)
+
+    assert frame.select(old_expression).item() == "SE"
+    new_expression = mmp.lookup_path(
+        "ip", database, ["country", "iso_code"]
+    ).alias("country")
+    with pytest.raises(pl.exceptions.ComputeError, match="could not open MMDB"):
+        frame.select(new_expression)
