@@ -1,6 +1,6 @@
 # Comparison with existing Polars integrations
 
-This comparison was rerun on 2026-08-24 against the current public releases of
+This comparison was rerun on 2026-08-25 against the current public releases of
 both overlapping projects:
 
 - [`polars-maxminddb` 0.2.3](https://pypi.org/project/polars-maxminddb/),
@@ -17,30 +17,30 @@ validity semantics.
 
 ## Reproducible result
 
-The benchmark used the unreleased `maxminddb-polars` candidate at revision
-`573f6e5` (whose package metadata is still 0.1.2), Python 3.13.12, Polars
-1.43.2, one Polars thread, a 33.7 MB GeoLite2 City database, 50,000 rows, and
-the median of five warm runs. The three-field cases select English country
-name, English city name, and longitude. Throughput is millions of rows per
-second; external results are informational, not release gates. One thread
-keeps the implementation comparison CPU-normalized; multi-thread scalar
-results are recorded in [`performance.md`](performance.md).
+The benchmark used the unreleased `maxminddb-polars` candidate (whose package
+metadata is still 0.1.2), Python 3.13.12, Polars 1.43.2, one Polars thread, a
+33.7 MB GeoLite2 City database, 50,000 rows, and the median of five warm runs.
+Each JSON report records its exact clean source revision. The three-field cases
+select English country name, English city name, and longitude. Throughput is
+millions of rows per second; external results are informational, not release
+gates. One thread keeps the implementation comparison CPU-normalized;
+multi-thread scalar results are recorded in [`performance.md`](performance.md).
 
 | Operation                              | 50k distinct | 4 repeated IPs |
 | -------------------------------------- | -----------: | -------------: |
-| `maxminddb-polars` scalar path         |         4.66 |           8.82 |
-| `polars-maxminddb` country             |         0.58 |           0.64 |
-| `polars-iptools.full` → country        |         1.00 |           1.37 |
-| `maxminddb-polars` fused partial       |         3.62 |           8.64 |
-| three `polars-maxminddb` calls         |         0.19 |           0.21 |
-| one materialized `polars-iptools.full` |         0.99 |           1.38 |
+| `maxminddb-polars` scalar path         |         5.05 |           9.04 |
+| `polars-maxminddb` country             |         0.58 |           0.65 |
+| `polars-iptools.full` → country        |         1.21 |           1.48 |
+| `maxminddb-polars` fused partial       |         3.70 |           8.69 |
+| three `polars-maxminddb` calls         |         0.19 |           0.22 |
+| one materialized `polars-iptools.full` |         1.20 |           1.50 |
 
 All country outputs were identical. Three-field values were identical on all
 fully populated rows (26,998 distinct-IP rows and 25,000 repeated-IP rows).
 Missing values are intentionally not declared identical because of the null
 versus empty/default semantic difference.
 
-Peak process RSS was 198 MiB for the distinct workload and 158 MiB for the
+Peak process RSS was 191 MiB for the distinct workload and 160 MiB for the
 repeated workload. Content-free source results are committed as
 [`comparison-high-cardinality.json`](../benchmarks/results/comparison-high-cardinality.json)
 and

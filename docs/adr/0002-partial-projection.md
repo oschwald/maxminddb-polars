@@ -45,7 +45,7 @@ different schema semantics.
 
 The committed 10,000-row repeated-fixture baseline is in
 `benchmarks/results/development-fixtures.json`. On that recorded environment,
-the fused three-field projection took 0.78 times the scalar-path median, inside
+the fused three-field projection took 1.02 times the scalar-path median, inside
 the initial 1.30 gate. Fixture results are regression references, not forecasts
 for a full production database.
 

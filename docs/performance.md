@@ -43,9 +43,9 @@ gate fails. The committed development result is
 The same release-mode, single-thread fixture gate runs weekly and can be
 started manually through the `Benchmark` GitHub Actions workflow.
 
-The recorded 20-worker repeated-fixture scalar and fused-partial results are
-8.33 and 10.61 million rows per second. The fused/scalar median ratio is 0.78,
-inside the initial 1.30 gate, and peak process RSS is 110 MiB. Tiny fixtures
+The recorded single-worker repeated-fixture scalar and fused-partial results
+are 11.69 and 11.44 million rows per second. The fused/scalar median ratio is
+1.02, inside the initial 1.30 gate, and peak process RSS is 109 MiB. Tiny fixtures
 heavily favor record-offset deduplication and are useful for regression
 detection, not production capacity planning.
 
@@ -88,13 +88,14 @@ The result file contains metrics and database size, not database contents.
 Database files must never be committed or uploaded as workflow artifacts. Runs
 over 250,000 whole-City rows require `--allow-large-run` and should be isolated
 by an OS/container memory limit. A 33.7 MB real GeoLite2 City database was
-exercised at revision `573f6e5`. With one thread, scalar, three-field partial,
-and whole-City throughput was 9.94, 9.80, and 0.69 million rows per second; the
-partial/scalar ratio was 1.01 and peak RSS was 251 MiB. With 20 threads, scalar
-throughput rose to 35.73 million rows per second while partial and whole-City
-throughput remained 9.34 and 0.68 million rows per second at 255 MiB peak RSS.
-The parallel partial/scalar ratio is informational because only the scalar path
-uses internal parallelism. Content-free metrics are committed as
+exercised in clean checkouts recorded by each report. With one thread and six
+repeated inputs, scalar, three-field partial, and whole-City throughput was
+10.05, 9.68, and 0.69 million rows per second; the partial/scalar ratio was 1.04
+and peak RSS was 254 MiB. With 20 threads and 25,000 unique mapped IPs among
+50,000 rows, throughput was 20.91, 4.25, and 0.27 million rows per second,
+respectively, at 425 MiB peak RSS. The parallel partial/scalar ratio is
+informational because only the scalar path uses internal parallelism.
+Content-free metrics are committed as
 [`real-geolite2-city.json`](../benchmarks/results/real-geolite2-city.json) and
 [`real-geolite2-city-parallel.json`](../benchmarks/results/real-geolite2-city-parallel.json).
 
