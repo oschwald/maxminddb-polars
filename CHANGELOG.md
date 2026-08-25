@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Improved scalar lookup throughput and memory use with borrowed string and
+  binary decoding, Polars-native offset hashing, and bounded parallel execution
+  for large batches.
+
 ## [0.1.2] - 2026-08-24
 
 ### Changed
