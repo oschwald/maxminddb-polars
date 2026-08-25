@@ -4,6 +4,7 @@ set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
 
 uv sync --all-extras --locked --no-install-project
 uv run --no-sync maturin develop
