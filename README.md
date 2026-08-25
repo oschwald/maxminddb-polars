@@ -34,9 +34,10 @@ result = frame.select(
 country = pl.col("ip").mmdb.lookup_path(database, ("country", "iso_code"))
 ```
 
-Whole records infer one of the nine standard schemas from database metadata:
-City, Country, Enterprise, ISP, Connection Type, Anonymous IP,
-Density/Income, Domain, or ASN. Their stable Polars dtypes are exported from
+Whole records infer one of 14 standard schemas from database metadata: City,
+Country, Enterprise, ISP, Connection Type, Anonymous IP, Anonymous Plus,
+Residential Proxy, IP Risk, Static IP Score, User Count, Density/Income,
+Domain, or ASN. Their stable Polars dtypes are exported from
 `maxminddb_polars.schemas`.
 
 Pass a nested mapping or `pl.Struct` as `dtype` for a partial known record or a

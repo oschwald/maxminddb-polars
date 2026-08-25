@@ -47,21 +47,28 @@ The equivalent namespace method is
 
 ## Supported database metadata
 
-| Output schema   | Recognized `database_type` values                                                                                    |
-| --------------- | -------------------------------------------------------------------------------------------------------------------- |
-| City            | `GeoIP2-City`, `GeoLite2-City`, `GeoIP2-City-Shield`                                                                 |
-| Country         | `GeoIP2-Country`, `GeoLite2-Country`, `GeoIP2-Country-Shield`                                                        |
-| Enterprise      | `GeoIP2-Enterprise`, `GeoIP2-Enterprise-Shield`, `GeoIP2-Precision-Enterprise`, `GeoIP2-Precision-Enterprise-Shield` |
-| ISP             | `GeoIP2-ISP`                                                                                                         |
-| Connection Type | `GeoIP2-Connection-Type`                                                                                             |
-| Anonymous IP    | `GeoIP2-Anonymous-IP`                                                                                                |
-| Density/Income  | `GeoIP2-DensityIncome`                                                                                               |
-| Domain          | `GeoIP2-Domain`                                                                                                      |
-| ASN             | `GeoIP2-ASN`, `GeoLite2-ASN`                                                                                         |
+| Output schema     | Recognized `database_type` values                                                                                    |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------- |
+| City              | `GeoIP2-City`, `GeoLite2-City`, `GeoIP2-City-Shield`                                                                 |
+| Country           | `GeoIP2-Country`, `GeoLite2-Country`, `GeoIP2-Country-Shield`                                                        |
+| Enterprise        | `GeoIP2-Enterprise`, `GeoIP2-Enterprise-Shield`, `GeoIP2-Precision-Enterprise`, `GeoIP2-Precision-Enterprise-Shield` |
+| ISP               | `GeoIP2-ISP`                                                                                                         |
+| Connection Type   | `GeoIP2-Connection-Type`                                                                                             |
+| Anonymous IP      | `GeoIP2-Anonymous-IP`                                                                                                |
+| Anonymous Plus    | `GeoIP-Anonymous-Plus`                                                                                               |
+| Residential Proxy | `GeoIP-Residential-Proxy`                                                                                            |
+| IP Risk           | `GeoIP2-IP-Risk`                                                                                                     |
+| Static IP Score   | `GeoIP2-Static-IP-Score`                                                                                             |
+| User Count        | `GeoIP2-User-Count`                                                                                                  |
+| Density/Income    | `GeoIP2-DensityIncome`                                                                                               |
+| Domain            | `GeoIP2-Domain`                                                                                                      |
+| ASN               | `GeoIP2-ASN`, `GeoLite2-ASN`                                                                                         |
 
 Exact stable dtypes are available as uppercase values in
-`maxminddb_polars.schemas`. Other metadata names are intentionally treated as
-custom databases, even if their names resemble a standard product.
+`maxminddb_polars.schemas`, including `RESIDENTIAL_PROXY`, `ANONYMOUS_PLUS`,
+`IP_RISK`, `STATIC_IP_SCORE`, and `USER_COUNT`. Other metadata names are
+intentionally treated as custom databases, even if their names resemble a
+standard product.
 
 Output field names are serialized MMDB keys: for example `names.en`,
 `names.pt-BR`, and `represented_country.type`.

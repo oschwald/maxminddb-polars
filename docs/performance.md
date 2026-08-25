@@ -14,9 +14,10 @@ most two Polars workers, decode each unique record offset once. Larger scalar
 batches decode in parallel with no IP cache and cap every task's temporary
 decoded values at 2,048 rows. Adjacent physical input chunks are coalesced into
 those logical tasks without copying or rechunking the IP values. Complete
-standard records use typed `maxminddb::geoip2` decoders.
-Partial/custom records and nested paths use the shared schema projection tree
-and direct Arrow/Polars Struct/List builders.
+City, Country, Enterprise, ISP, Connection Type, Anonymous IP,
+Density/Income, Domain, and ASN records use typed `maxminddb::geoip2` decoders.
+The five newer known products, partial/custom records, and nested paths use the
+shared schema projection tree and direct Arrow/Polars Struct/List builders.
 
 ## Reproducible fixture baseline
 

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added inferred whole-record and path schemas for Residential Proxy,
+  Anonymous Plus, IP Risk, Static IP Score, and User Count databases, with
+  stable public dtype constants.
+
 ### Fixed
 
 - Prevented same-path, same-size database replacements with preserved

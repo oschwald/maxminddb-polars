@@ -9,7 +9,7 @@ both overlapping projects:
   broader IP toolkit includes a fixed GeoIP `full` Struct.
 
 `maxminddb-polars` instead accepts the database path on each expression and
-supports inferred whole records for nine database families, arbitrary custom
+supports inferred whole records for 14 database families, arbitrary custom
 Struct schemas, validated partial schemas, and scalar/nested paths. The
 competitors use empty strings and numeric defaults for some missing fields;
 this package preserves MMDB absence as null according to its documented
