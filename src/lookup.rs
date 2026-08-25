@@ -1,18 +1,24 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::net::IpAddr;
 
 use maxminddb::LookupResult;
 use polars::prelude::*;
 use polars_arrow::bitmap::Bitmap;
+use polars_core::runtime::RAYON;
+use polars_utils::aliases::{InitHashMaps, PlHashMap};
+use rayon::prelude::*;
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
 
 use crate::cache::{CachedReader, DatabaseIdentity, reader_for};
 use crate::guard::catch_mmdb_unwind;
 use crate::known::decode_known;
 use crate::schema::{PathPart, SchemaSpec, resolve_path_dtype, resolve_record_dtype, to_mmdb_path};
 use crate::value::{Value, decode_projected_path, values_to_series, with_projected_schema};
+
+// Smaller batches do not repay Rayon scheduling and multi-chunk output costs.
+const PARALLEL_SCALAR_MIN_ROWS: usize = 8_192;
+// Bound each task's temporary decoded values independently of the batch size.
+const PARALLEL_SCALAR_MAX_CHUNK_ROWS: usize = 2_048;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct LookupPathKwargs {
@@ -48,6 +54,14 @@ pub fn record_output_dtype(kwargs: &LookupRecordKwargs) -> PolarsResult<SchemaSp
 }
 
 pub fn lookup_path_series(inputs: &[Series], kwargs: &LookupPathKwargs) -> PolarsResult<Series> {
+    lookup_path_series_with_workers(inputs, kwargs, RAYON.current_num_threads())
+}
+
+fn lookup_path_series_with_workers(
+    inputs: &[Series],
+    kwargs: &LookupPathKwargs,
+    scalar_workers: usize,
+) -> PolarsResult<Series> {
     let [input] = inputs else {
         polars_bail!(InvalidOperation: "MMDB lookup expects exactly one input column")
     };
@@ -61,8 +75,33 @@ pub fn lookup_path_series(inputs: &[Series], kwargs: &LookupPathKwargs) -> Polar
 
     macro_rules! primitive {
         ($ty:ty, $chunked:ty) => {{
-            let values = decode_scalar_values::<$ty>(ips, &reader, &path, kwargs)?;
-            Ok(<$chunked>::from_iter_options(name, values.into_iter()).into_series())
+            if ips.len() >= PARALLEL_SCALAR_MIN_ROWS && scalar_workers > 2 {
+                let chunk_name = name.clone();
+                let chunks = decode_scalar_chunks_parallel::<$ty, _, _>(
+                    ips,
+                    &reader,
+                    &path,
+                    kwargs,
+                    move |values| {
+                        <$chunked>::from_iter_options(chunk_name.clone(), values.into_iter())
+                    },
+                )?;
+                let mut chunks = chunks.into_iter();
+                let mut output = chunks.next().ok_or_else(|| {
+                    polars_err!(ComputeError: "parallel MMDB lookup returned no output chunks")
+                })?;
+                for chunk in chunks {
+                    output.append(&chunk)?;
+                }
+                Ok(output.into_series())
+            } else {
+                let (unique_values, rows) =
+                    decode_scalar_values::<$ty>(ips, &reader, &path, kwargs)?;
+                let values = rows
+                    .into_iter()
+                    .map(|row| row.and_then(|index| unique_values[index]));
+                Ok(<$chunked>::from_iter_options(name, values).into_series())
+            }
         }};
     }
 
@@ -80,8 +119,8 @@ pub fn lookup_path_series(inputs: &[Series], kwargs: &LookupPathKwargs) -> Polar
         SchemaSpec::Int128 => primitive!(i128, Int128Chunked),
         SchemaSpec::Float32 => primitive!(f32, Float32Chunked),
         SchemaSpec::Float64 => primitive!(f64, Float64Chunked),
-        SchemaSpec::String => primitive!(String, StringChunked),
-        SchemaSpec::Binary => primitive!(Vec<u8>, BinaryChunked),
+        SchemaSpec::String => primitive!(&str, StringChunked),
+        SchemaSpec::Binary => primitive!(&[u8], BinaryChunked),
         dtype => decode_nested_path_values(ips, &reader, &path, &dtype, kwargs),
     }
 }
@@ -124,6 +163,8 @@ pub(crate) struct LookupBatch<'a> {
     pub(crate) rows: Vec<Option<usize>>,
 }
 
+type DecodedScalarValues<T> = (Vec<Option<T>>, Vec<Option<usize>>);
+
 pub(crate) fn lookup_batch<'a>(
     ips: &StringChunked,
     reader: &'a CachedReader,
@@ -141,36 +182,15 @@ fn lookup_batch_inner<'a>(
     database: &DatabaseIdentity,
     strict: bool,
 ) -> PolarsResult<LookupBatch<'a>> {
-    let mut offsets = HashMap::<usize, usize>::new();
+    let mut offsets = PlHashMap::<usize, usize>::new();
     let mut unique = Vec::new();
     let mut rows = Vec::with_capacity(ips.len());
 
     for value in ips.iter() {
-        let Some(value) = value else {
+        let Some(result) = lookup_one(value, reader, database, strict)? else {
             rows.push(None);
             continue;
         };
-        let ip = match value.parse::<IpAddr>() {
-            Ok(ip) => ip,
-            Err(_) if !strict => {
-                rows.push(None);
-                continue;
-            }
-            Err(error) => {
-                polars_bail!(
-                    ComputeError:
-                    "invalid IP address {value:?} for MMDB {:?}: {error}",
-                    database.canonical_path
-                )
-            }
-        };
-        let result = reader.lookup(ip).map_err(|error| {
-            polars_err!(
-                ComputeError:
-                "MMDB lookup failed for {ip} in {:?}: {error}",
-                database.canonical_path
-            )
-        })?;
         let Some(offset) = result.offset() else {
             rows.push(None);
             continue;
@@ -190,14 +210,43 @@ fn lookup_batch_inner<'a>(
     Ok(LookupBatch { unique, rows })
 }
 
-fn decode_scalar_values<T>(
+fn lookup_one<'a>(
+    value: Option<&str>,
+    reader: &'a CachedReader,
+    database: &DatabaseIdentity,
+    strict: bool,
+) -> PolarsResult<Option<LookupResult<'a, Vec<u8>>>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let ip = match value.parse::<IpAddr>() {
+        Ok(ip) => ip,
+        Err(_) if !strict => return Ok(None),
+        Err(error) => {
+            polars_bail!(
+                ComputeError:
+                "invalid IP address {value:?} for MMDB {:?}: {error}",
+                database.canonical_path
+            )
+        }
+    };
+    reader.lookup(ip).map(Some).map_err(|error| {
+        polars_err!(
+            ComputeError:
+            "MMDB lookup failed for {ip} in {:?}: {error}",
+            database.canonical_path
+        )
+    })
+}
+
+fn decode_scalar_values<'a, T>(
     ips: &StringChunked,
-    reader: &CachedReader,
+    reader: &'a CachedReader,
     path: &[maxminddb::PathElement<'_>],
     kwargs: &LookupPathKwargs,
-) -> PolarsResult<Vec<Option<T>>>
+) -> PolarsResult<DecodedScalarValues<T>>
 where
-    T: DeserializeOwned + Clone,
+    T: Deserialize<'a> + Copy,
 {
     let batch = lookup_batch(ips, reader, &kwargs.database, kwargs.strict)?;
     let unique_values = guard_mmdb_operation(&kwargs.database, || {
@@ -216,11 +265,61 @@ where
             .collect::<PolarsResult<Vec<Option<T>>>>()
     })?;
 
-    Ok(batch
-        .rows
-        .into_iter()
-        .map(|row| row.and_then(|index| unique_values[index].clone()))
-        .collect())
+    Ok((unique_values, batch.rows))
+}
+
+fn decode_scalar_chunks_parallel<'a, T, C, F>(
+    ips: &StringChunked,
+    reader: &'a CachedReader,
+    path: &[maxminddb::PathElement<'_>],
+    kwargs: &LookupPathKwargs,
+    build: F,
+) -> PolarsResult<Vec<C>>
+where
+    T: Deserialize<'a> + Copy + Send,
+    C: Send,
+    F: Fn(Vec<Option<T>>) -> C + Send + Sync,
+{
+    if ips.is_empty() {
+        return Ok(Vec::new());
+    }
+    let chunks = ips
+        .downcast_iter()
+        .flat_map(|array| {
+            (0..array.len())
+                .step_by(PARALLEL_SCALAR_MAX_CHUNK_ROWS)
+                .map(move |start| {
+                    let end = (start + PARALLEL_SCALAR_MAX_CHUNK_ROWS).min(array.len());
+                    (array, start, end)
+                })
+        })
+        .collect::<Vec<_>>();
+    guard_mmdb_operation(&kwargs.database, || {
+        RAYON.install(|| {
+            chunks
+                .into_par_iter()
+                .map(|(array, start, end)| {
+                    let mut values = Vec::with_capacity(end - start);
+                    for index in start..end {
+                        let Some(result) =
+                            lookup_one(array.get(index), reader, &kwargs.database, kwargs.strict)?
+                        else {
+                            values.push(None);
+                            continue;
+                        };
+                        values.push(result.decode_path(path).map_err(|error| {
+                            polars_err!(
+                                ComputeError:
+                                "could not decode MMDB value at path in {:?}: {error}",
+                                kwargs.database.canonical_path
+                            )
+                        })?);
+                    }
+                    Ok(build(values))
+                })
+                .collect()
+        })
+    })
 }
 
 fn decode_nested_path_values(
@@ -545,6 +644,106 @@ mod tests {
             lookup_batch(ips.str().unwrap(), &reader, &kwargs.database, kwargs.strict).unwrap();
         assert_eq!(batch.unique.len(), 1);
         assert_eq!(batch.rows, vec![Some(0), Some(0)]);
+    }
+
+    #[test]
+    fn parallel_scalar_chunks_match_deduplicated_lookup() {
+        let kwargs = kwargs(false);
+        let reader = reader_for(&kwargs.database).unwrap();
+        let path = to_mmdb_path(&kwargs.path).unwrap();
+        let candidates = [
+            Some("89.160.20.128"),
+            None,
+            Some("not-an-ip"),
+            Some("203.0.113.1"),
+        ];
+        let inputs = (0..8_200)
+            .map(|index| candidates[index % candidates.len()])
+            .collect::<Vec<_>>();
+        let input = series(&inputs);
+        let ips = input.str().unwrap();
+
+        let parallel_chunks =
+            decode_scalar_chunks_parallel::<&str, _, _>(ips, &reader, &path, &kwargs, |values| {
+                values
+            })
+            .unwrap();
+        assert_eq!(
+            parallel_chunks.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![2_048, 2_048, 2_048, 2_048, 8]
+        );
+        assert!(
+            parallel_chunks
+                .iter()
+                .all(|values| values.len() <= PARALLEL_SCALAR_MAX_CHUNK_ROWS)
+        );
+        let parallel = parallel_chunks.into_iter().flatten().collect::<Vec<_>>();
+        let (unique, rows) = decode_scalar_values::<&str>(ips, &reader, &path, &kwargs).unwrap();
+        let deduplicated = rows
+            .into_iter()
+            .map(|row| row.and_then(|index| unique[index]))
+            .collect::<Vec<_>>();
+
+        assert_eq!(parallel, deduplicated);
+    }
+
+    #[test]
+    fn scalar_dispatch_respects_row_and_worker_thresholds() {
+        let kwargs = kwargs(false);
+        let candidates = [
+            Some("89.160.20.128"),
+            None,
+            Some("not-an-ip"),
+            Some("203.0.113.1"),
+        ];
+        let inputs = (0..PARALLEL_SCALAR_MIN_ROWS)
+            .map(|index| candidates[index % candidates.len()])
+            .collect::<Vec<_>>();
+        let input = series(&inputs);
+
+        let parallel =
+            lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 3).unwrap();
+        let two_workers =
+            lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 2).unwrap();
+        let below_threshold = lookup_path_series_with_workers(
+            &[input.slice(0, PARALLEL_SCALAR_MIN_ROWS - 1)],
+            &kwargs,
+            3,
+        )
+        .unwrap();
+
+        assert!(parallel.equals_missing(&two_workers));
+        assert_eq!(parallel.n_chunks(), 4);
+        assert_eq!(two_workers.n_chunks(), 1);
+        assert_eq!(below_threshold.n_chunks(), 1);
+    }
+
+    #[test]
+    fn parallel_scalar_dispatch_preserves_unequal_input_chunks() {
+        let kwargs = kwargs(false);
+        let candidates = [
+            Some("89.160.20.128"),
+            None,
+            Some("not-an-ip"),
+            Some("203.0.113.1"),
+        ];
+        let make_values = |length: usize, offset: usize| {
+            (0..length)
+                .map(|index| candidates[(index + offset) % candidates.len()])
+                .collect::<Vec<_>>()
+        };
+        let first = make_values(4_097, 0);
+        let second = make_values(4_111, first.len());
+        let mut input = series(&first);
+        input.append(&series(&second)).unwrap();
+        assert_eq!(input.n_chunks(), 2);
+
+        let parallel =
+            lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 3).unwrap();
+        let serial = lookup_path_series_with_workers(&[input], &kwargs, 1).unwrap();
+
+        assert!(parallel.equals_missing(&serial));
+        assert_eq!(parallel.n_chunks(), 6);
     }
 
     fn collect_corrupt_fixtures() -> Vec<std::path::PathBuf> {

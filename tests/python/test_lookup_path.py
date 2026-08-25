@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 from typing import Literal
 
@@ -49,6 +53,80 @@ def test_explicit_dtype_supports_an_unknown_database() -> None:
         mmp.lookup_path("ip", CUSTOM_DB, ["uint32"], dtype=pl.UInt32).alias("value")
     )
     assert result.to_dict(as_series=False) == {"value": [2**28]}
+
+
+def test_large_binary_scalar_batch_preserves_order_and_nulls() -> None:
+    values = ["::1.1.1.0", None, "not-an-ip"] * 2_731
+    result = pl.DataFrame({"ip": values}).select(
+        mmp.lookup_path(
+            "ip", CUSTOM_DB, ["bytes"], dtype=pl.Binary, strict=False
+        ).alias("value")
+    )
+
+    assert result["value"].to_list() == [b"\x00\x00\x00*", None, None] * 2_731
+
+
+def test_parallel_dispatch_with_controlled_worker_pool() -> None:
+    script = textwrap.dedent(
+        f"""
+        import polars as pl
+
+        import maxminddb_polars as mmp
+
+        database = {str(CITY_DB)!r}
+        pattern = ["89.160.20.128", None, "not-an-ip", "203.0.113.1"]
+
+        def lookup(values: list[str | None]) -> pl.DataFrame:
+            return pl.DataFrame({{"ip": values}}).select(
+                mmp.lookup_path(
+                    "ip",
+                    database,
+                    ["country", "iso_code"],
+                    strict=False,
+                ).alias("country")
+            )
+
+        assert pl.thread_pool_size() == 3
+        threshold_values = (pattern * 2_048)[:8_192]
+        parallel = lookup(threshold_values)
+        serial = lookup(threshold_values[:-1])
+        assert parallel["country"].n_chunks() == 4
+        assert serial["country"].n_chunks() == 1
+
+        first = (pattern * 2_049)[:8_193]
+        second = (pattern * 2_561)[1:10_242]
+        multi_chunk = pl.concat(
+            [pl.DataFrame({{"ip": first}}), pl.DataFrame({{"ip": second}})],
+            rechunk=False,
+        )
+        assert multi_chunk["ip"].n_chunks() == 2
+        result = multi_chunk.select(
+            mmp.lookup_path(
+                "ip",
+                database,
+                ["country", "iso_code"],
+                strict=False,
+            ).alias("country")
+        )
+        expected = [
+            "SE" if value == "89.160.20.128" else None
+            for value in [*first, *second]
+        ]
+        assert result["country"].n_chunks() == 11
+        assert result["country"].to_list() == expected
+        """
+    )
+    environment = os.environ.copy()
+    environment["POLARS_MAX_THREADS"] = "3"
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        env=environment,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_unknown_database_requires_dtype_during_planning() -> None:

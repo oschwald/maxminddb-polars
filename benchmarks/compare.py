@@ -12,6 +12,7 @@ import os
 import platform
 import resource
 import statistics
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -20,6 +21,13 @@ from typing import Any
 import polars as pl
 
 import maxminddb_polars as mmp
+
+
+def _command_output(command: list[str]) -> str:
+    try:
+        return subprocess.check_output(command, text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unavailable"
 
 
 def _version(distribution: str) -> str:
@@ -196,6 +204,7 @@ def main() -> None:
             "polars_maxminddb": _version("polars-maxminddb"),
             "polars_iptools": _version("polars-iptools"),
             "database_bytes": database.stat().st_size,
+            "git_revision": _command_output(["git", "rev-parse", "HEAD"]),
         },
         "workload": args.workload,
         "rows": args.rows,
