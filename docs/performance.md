@@ -36,7 +36,9 @@ The script measures a scalar path, three independent paths, a fused
 three-field projection, complete City/Country/Enterprise/ASN records, CPU and
 wall samples, output size, and peak process RSS. It records OS, Python, Polars,
 Rust, package, and fixture revisions, whether tracked source files were dirty,
-and a report schema version. Peak RSS is normalized to KiB on Linux and macOS.
+and a report schema version. `git_dirty` is `true` or `false` when Git status is
+available and `null` when it cannot be determined. Peak RSS is normalized to
+KiB on Linux and macOS.
 `--enforce-gates` exits unsuccessfully after writing the report if a boolean
 gate fails. The committed development result is
 [`benchmarks/results/development-fixtures.json`](../benchmarks/results/development-fixtures.json).

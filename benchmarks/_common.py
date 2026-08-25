@@ -25,7 +25,7 @@ def command_output(command: list[str], *, cwd: Path | None = None) -> str:
         return "unavailable"
 
 
-def source_provenance() -> dict[str, str | bool]:
+def source_provenance() -> dict[str, str | bool | None]:
     """Describe the source checkout used to run a benchmark."""
     status = command_output(
         ["git", "status", "--porcelain", "--untracked-files=no"],
@@ -35,7 +35,7 @@ def source_provenance() -> dict[str, str | bool]:
         "git_revision": command_output(
             ["git", "rev-parse", "HEAD"], cwd=REPOSITORY_ROOT
         ),
-        "git_dirty": status not in {"", "unavailable"},
+        "git_dirty": None if status == "unavailable" else bool(status),
     }
 
 
