@@ -9,7 +9,7 @@ settings live in [`maintaining.md`](maintaining.md).
 
 - The public surface is frozen by [ADR 0001](adr/0001-public-api.md) and an
   executable `__all__` regression test.
-- All nine standard record schemas, metadata aliases, scalar and nested paths,
+- All 14 standard database schemas, metadata aliases, scalar and nested paths,
   custom schemas, and validated partial schemas have eager, lazy, streaming,
   cross-platform, dtype, null, strictness, concurrency, and snapshot coverage.
 - Twenty-one Rust tests include differential property tests, every one of the
@@ -75,7 +75,8 @@ The post-`0.1.2` roadmap branch completed a no-publish rehearsal under a
 3.5 GiB cgroup with swap disabled and one Cargo build job:
 
 - `scripts/check` passed all repository formatting, lint, type, metadata,
-  lockfile, submodule, documentation, 30 Rust test, and 67 Python test gates.
+  lockfile, submodule, and documentation gates, plus 31 Rust tests and 78 Python
+  tests.
 - `cargo publish --dry-run --locked --allow-dirty` packaged and compiled the
   crate; the upload step was intentionally aborted by Cargo's dry-run mode.
 - A locked release wheel and sdist passed repository content inspection and
