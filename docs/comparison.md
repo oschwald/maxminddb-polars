@@ -17,14 +17,15 @@ validity semantics.
 
 ## Reproducible result
 
-The benchmark used the unreleased `maxminddb-polars` candidate (whose package
-metadata is still 0.1.2), Python 3.13.12, Polars 1.43.2, one Polars thread, a
-33.7 MB GeoLite2 City database, 50,000 rows, and the median of five warm runs.
-Each JSON report records its exact clean source revision. The three-field cases
-select English country name, English city name, and longitude. Throughput is
-millions of rows per second; external results are informational, not release
-gates. One thread keeps the implementation comparison CPU-normalized;
-multi-thread scalar results are recorded in [`performance.md`](performance.md).
+The benchmark used the `maxminddb-polars` 0.1.3 release candidate (whose
+package metadata was still 0.1.2 when measured), Python 3.13.12, Polars 1.43.2,
+one Polars thread, a 33.7 MB GeoLite2 City database, 50,000 rows, and the median
+of five warm runs. Each JSON report records its exact clean source revision.
+The three-field cases select English country name, English city name, and
+longitude. Throughput is millions of rows per second; external results are
+informational, not release gates. One thread keeps the implementation
+comparison CPU-normalized; multi-thread scalar results are recorded in
+[`performance.md`](performance.md).
 
 | Operation                              | 50k distinct | 4 repeated IPs |
 | -------------------------------------- | -----------: | -------------: |
