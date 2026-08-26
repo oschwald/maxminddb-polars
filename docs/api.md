@@ -47,21 +47,28 @@ The equivalent namespace method is
 
 ## Supported database metadata
 
-| Output schema   | Recognized `database_type` values                                                                                    |
-| --------------- | -------------------------------------------------------------------------------------------------------------------- |
-| City            | `GeoIP2-City`, `GeoLite2-City`, `GeoIP2-City-Shield`                                                                 |
-| Country         | `GeoIP2-Country`, `GeoLite2-Country`, `GeoIP2-Country-Shield`                                                        |
-| Enterprise      | `GeoIP2-Enterprise`, `GeoIP2-Enterprise-Shield`, `GeoIP2-Precision-Enterprise`, `GeoIP2-Precision-Enterprise-Shield` |
-| ISP             | `GeoIP2-ISP`                                                                                                         |
-| Connection Type | `GeoIP2-Connection-Type`                                                                                             |
-| Anonymous IP    | `GeoIP2-Anonymous-IP`                                                                                                |
-| Density/Income  | `GeoIP2-DensityIncome`                                                                                               |
-| Domain          | `GeoIP2-Domain`                                                                                                      |
-| ASN             | `GeoIP2-ASN`, `GeoLite2-ASN`                                                                                         |
+| Output schema     | Recognized `database_type` values                                                                                    |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------- |
+| City              | `GeoIP2-City`, `GeoLite2-City`, `GeoIP2-City-Shield`                                                                 |
+| Country           | `GeoIP2-Country`, `GeoLite2-Country`, `GeoIP2-Country-Shield`                                                        |
+| Enterprise        | `GeoIP2-Enterprise`, `GeoIP2-Enterprise-Shield`, `GeoIP2-Precision-Enterprise`, `GeoIP2-Precision-Enterprise-Shield` |
+| ISP               | `GeoIP2-ISP`                                                                                                         |
+| Connection Type   | `GeoIP2-Connection-Type`                                                                                             |
+| Anonymous IP      | `GeoIP2-Anonymous-IP`                                                                                                |
+| Anonymous Plus    | `GeoIP-Anonymous-Plus`                                                                                               |
+| Residential Proxy | `GeoIP-Residential-Proxy`                                                                                            |
+| IP Risk           | `GeoIP2-IP-Risk`                                                                                                     |
+| Static IP Score   | `GeoIP2-Static-IP-Score`                                                                                             |
+| User Count        | `GeoIP2-User-Count`                                                                                                  |
+| Density/Income    | `GeoIP2-DensityIncome`                                                                                               |
+| Domain            | `GeoIP2-Domain`                                                                                                      |
+| ASN               | `GeoIP2-ASN`, `GeoLite2-ASN`                                                                                         |
 
 Exact stable dtypes are available as uppercase values in
-`maxminddb_polars.schemas`. Other metadata names are intentionally treated as
-custom databases, even if their names resemble a standard product.
+`maxminddb_polars.schemas`, including `RESIDENTIAL_PROXY`, `ANONYMOUS_PLUS`,
+`IP_RISK`, `STATIC_IP_SCORE`, and `USER_COUNT`. Other metadata names are
+intentionally treated as custom databases, even if their names resemble a
+standard product.
 
 Output field names are serialized MMDB keys: for example `names.en`,
 `names.pt-BR`, and `represented_country.type`.
@@ -91,12 +98,26 @@ not prove whether its source map was physically absent.
 
 ## Database updates
 
-An expression captures the canonical path, byte size, and nanosecond
-modification time. Schema planning and execution share a strong in-memory byte
-snapshot for that generation. Atomically replace an MMDB file and construct a
-new expression to use the replacement; an already planned expression continues
-to use its old snapshot. In-place changes detected during open fail rather than
-silently mixing generations.
+An expression captures the canonical path, byte size, nanosecond modification
+time, filesystem metadata-change or creation time, and the file identity on
+Unix and Windows. Schema planning and execution share a strong in-memory byte
+snapshot for that generation.
+Atomically replace an MMDB file and construct a new expression to use the
+replacement. In-place changes detected during open fail rather than silently
+mixing generations.
+
+Unix change time and file identity distinguish same-size replacements and
+in-place rewrites whose modification time is restored. The Windows volume and
+file identity distinguish atomic replacements, but a same-size in-place rewrite
+with a restored modification time might not be detected. Prefer atomic
+replacement on all platforms.
+
+The process-wide snapshot cache retains up to 512 MiB in insertion order by
+default. Set `MAXMINDDB_POLARS_CACHE_MAX_BYTES` before the first lookup to choose
+a different non-negative byte limit. The newest snapshot is retained even when
+it alone exceeds the limit. An already planned expression uses its old snapshot
+while it remains cached; after eviction it either reopens unchanged bytes or
+returns an error asking the caller to reconstruct the expression.
 
 The package never downloads a database. Users are responsible for obtaining,
 updating, and licensing their MMDB files.

@@ -1,12 +1,14 @@
 name: Benchmark
 
 on:
+  schedule:
+    - cron: "23 9 * * 1"
   workflow_dispatch:
     inputs:
       rows:
         description: Rows per sample
         required: true
-        default: "500000"
+        default: "100000"
       repeats:
         description: Measured samples
         required: true
@@ -38,15 +40,17 @@ jobs:
           toolchain: stable
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       - run: uv sync --all-extras --locked --no-install-project
-      - run: uv run --no-sync maturin develop
+      - run: CARGO_BUILD_JOBS=1 uv run --no-sync maturin develop --release --locked
       - name: Run benchmark
         env:
-          BENCHMARK_REPEATS: ${{ inputs.repeats }}
-          BENCHMARK_ROWS: ${{ inputs.rows }}
+          BENCHMARK_REPEATS: ${{ inputs.repeats || '7' }}
+          BENCHMARK_ROWS: ${{ inputs.rows || '100000' }}
+          POLARS_MAX_THREADS: "1"
         run: >-
           uv run --no-sync python benchmarks/lookups.py
           --rows "$BENCHMARK_ROWS"
           --repeats "$BENCHMARK_REPEATS"
+          --enforce-gates
           --json benchmark-results.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

@@ -9,7 +9,7 @@ settings live in [`maintaining.md`](maintaining.md).
 
 - The public surface is frozen by [ADR 0001](adr/0001-public-api.md) and an
   executable `__all__` regression test.
-- All nine standard record schemas, metadata aliases, scalar and nested paths,
+- All 14 standard database schemas, metadata aliases, scalar and nested paths,
   custom schemas, and validated partial schemas have eager, lazy, streaming,
   cross-platform, dtype, null, strictness, concurrency, and snapshot coverage.
 - Twenty-one Rust tests include differential property tests, every one of the
@@ -49,10 +49,12 @@ settings live in [`maintaining.md`](maintaining.md).
 - Polars still pulls in unmaintained `bincode` 2.0.1. The disabled-cloud
   `quick-xml` dependency is absent from built targets. These exceptions remain
   documented and time-bounded.
-- On this development machine, a one-job debug Rust test link peaks near
-  3.1 GiB and the release build process near 1.9 GiB. Runtime comparison and
-  real-database workloads peak below 280 MiB. Local validation should keep
-  Cargo at one job when memory is constrained.
+- Full Polars debug data previously produced a 32 GiB accumulated local target
+  and a one-job test link near 3.1 GiB. The bounded dev/test profile disables
+  debug data and incremental caches; a fresh no-run test target was 1.8 GiB.
+  A cold Polars compile can still exceed a 2.5 GiB cgroup, so constrained local
+  validation should keep Cargo at one job and allow roughly 3.5 GiB. The
+  50%-unique 50,000-row City benchmark peaked near 423 MiB.
 - External performance comparisons are informational rather than release gates;
   the current pinned results and semantic differences are documented in
   [`comparison.md`](comparison.md).
@@ -66,3 +68,23 @@ repository upload tokens.
 `v0.1.1` corrected links in the PyPI description and hardened release
 verification. `v0.1.2` moved to Polars 0.55 and PyO3 0.29, resolving the two
 PyO3 security advisories accepted for the initial release.
+
+## Unreleased validation on 2026-08-25
+
+The post-`0.1.2` roadmap branch completed a no-publish rehearsal under a
+3.5 GiB cgroup with swap disabled and one Cargo build job:
+
+- `scripts/check` passed all repository formatting, lint, type, metadata,
+  lockfile, submodule, and documentation gates, plus 31 Rust tests and 78 Python
+  tests.
+- `cargo publish --dry-run --locked --allow-dirty` packaged and compiled the
+  crate; the upload step was intentionally aborted by Cargo's dry-run mode.
+- A locked release wheel and sdist passed repository content inspection and
+  strict Twine metadata checks.
+- The wheel installed into a clean Python 3.13/Polars 1.43.2 environment and
+  passed streaming City and inferred IP Risk lookups outside the checkout.
+- The sdist performed a cold release build, peaking near 2.75 GiB, then
+  installed into a separate clean environment and passed an external City
+  lookup.
+
+No tag, GitHub release, registry upload, or publication was created.

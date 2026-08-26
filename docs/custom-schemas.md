@@ -1,6 +1,6 @@
 # Custom and partial schemas
 
-`lookup` infers the complete dtype for the nine standard MaxMind database
+`lookup` infers the complete dtype for the 14 standard MaxMind database
 families. Pass `dtype` to select a smaller known record or to describe an
 otherwise unknown MMDB database. The dtype must be a `pl.Struct` or a nested
 mapping whose leaves are supported Polars dtypes.

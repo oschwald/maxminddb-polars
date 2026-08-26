@@ -6,51 +6,29 @@ import argparse
 import gc
 import importlib
 import importlib.metadata
-import ipaddress
 import json
 import os
 import platform
-import resource
 import statistics
-import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
 import polars as pl
+from _common import (
+    REPORT_SCHEMA_VERSION,
+    mapped_ip_frame,
+    peak_rss_kib,
+    source_provenance,
+    workload_cardinality,
+)
 
 import maxminddb_polars as mmp
 
 
-def _command_output(command: list[str]) -> str:
-    try:
-        return subprocess.check_output(command, text=True).strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unavailable"
-
-
 def _version(distribution: str) -> str:
     return importlib.metadata.version(distribution)
-
-
-def _high_cardinality_frame(database: Path, rows: int) -> pl.LazyFrame:
-    candidates = [
-        str(ipaddress.IPv4Address((index * 2_654_435_761) & 0xFFFFFFFF))
-        for index in range(1, rows * 3 + 1)
-    ]
-    found = (
-        pl.DataFrame({"ip": candidates})
-        .lazy()
-        .filter(
-            mmp.lookup_path("ip", database, ["country", "names", "en"]).is_not_null()
-        )
-        .limit(rows)
-        .collect()
-    )
-    if found.height != rows:
-        raise RuntimeError(f"only found {found.height:,} mapped candidate addresses")
-    return found.lazy()
 
 
 def _repeated_frame(rows: int) -> pl.LazyFrame:
@@ -184,17 +162,19 @@ def main() -> None:
     polars_maxminddb = importlib.import_module("polars_maxminddb")
     polars_iptools = importlib.import_module("polars_iptools")
     frame = (
-        _high_cardinality_frame(database, args.rows)
+        mapped_ip_frame(database, args.rows)
         if args.workload == "high"
         else _repeated_frame(args.rows)
     )
-    unique_ips = frame.select(pl.col("ip").n_unique()).collect().item()
+    cardinality = workload_cardinality(frame)
     plans = _plans(frame, database, polars_maxminddb, polars_iptools)
     complete_rows = _validate_outputs(plans)
     measurements = {
-        name: _measure(plan, args.repeats, args.rows) for name, plan in plans.items()
+        name: _measure(plan, args.repeats, cardinality["rows"])
+        for name, plan in plans.items()
     }
     report = {
+        "schema_version": REPORT_SCHEMA_VERSION,
         "environment": {
             "platform": platform.platform(),
             "python": sys.version,
@@ -204,11 +184,10 @@ def main() -> None:
             "polars_maxminddb": _version("polars-maxminddb"),
             "polars_iptools": _version("polars-iptools"),
             "database_bytes": database.stat().st_size,
-            "git_revision": _command_output(["git", "rev-parse", "HEAD"]),
+            **source_provenance(),
         },
         "workload": args.workload,
-        "rows": args.rows,
-        "unique_ips": unique_ips,
+        **cardinality,
         "validation": {
             "country_outputs_equal": True,
             "fully_populated_three_field_outputs_equal": True,
@@ -219,7 +198,7 @@ def main() -> None:
             ),
         },
         "operations": measurements,
-        "peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+        "peak_rss_kib": peak_rss_kib(),
     }
     encoded = json.dumps(report, indent=2) + "\n"
     print(encoded, end="")

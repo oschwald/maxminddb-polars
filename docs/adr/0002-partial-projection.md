@@ -25,9 +25,12 @@ leaf rather than once per input row.
 
 Keep scalar `lookup_path` on its direct typed decoder. Small and low-thread
 scalar batches retain record-offset deduplication; large batches use bounded
-parallel decoding, with at most 2,048 temporary decoded values per task. Keep
-complete standard records on their compile-time-checked `maxminddb::geoip2`
-decoders. This preserves the fastest specialized routes without creating
+parallel decoding, with at most 2,048 temporary decoded values per task.
+Adjacent physical chunks share bounded tasks without copying or rechunking
+their values. Keep standard records with upstream Rust types on their
+compile-time-checked `maxminddb::geoip2` decoders. Decode newer known products
+without upstream types through the same schema projection tree as custom
+records. This preserves the fastest specialized routes without creating
 different schema semantics.
 
 ## Consequences
@@ -42,6 +45,15 @@ different schema semantics.
 
 The committed 10,000-row repeated-fixture baseline is in
 `benchmarks/results/development-fixtures.json`. On that recorded environment,
-the fused three-field projection took 0.78 times the scalar-path median, inside
+the fused three-field projection took 1.09 times the scalar-path median, inside
 the initial 1.30 gate. Fixture results are regression references, not forecasts
 for a full production database.
+
+## Rejected record-decoding parallelism
+
+Parallel decoding of unique partial and whole-record values was prototyped on
+2026-08-25 with 50,000 City rows, 50% unique mapped IPs, and 20 workers. Against
+the same serial implementation, seven-run medians improved by only 0.3% for a
+three-field partial record and 1.4% for a whole City record, while peak RSS rose
+by about 5 MiB. The scheduling and error-path complexity was not justified, so
+record-offset gathering and record decoding remain serial.

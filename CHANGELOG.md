@@ -7,11 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added inferred whole-record and path schemas for Residential Proxy,
+  Anonymous Plus, IP Risk, Static IP Score, and User Count databases, with
+  stable public dtype constants.
+
+### Fixed
+
+- Prevented same-path, same-size database replacements with preserved
+  modification times from reusing stale cached bytes.
+
 ### Changed
 
 - Improved scalar lookup throughput and memory use with borrowed string and
   binary decoding, Polars-native offset hashing, and bounded parallel execution
-  for large batches.
+  for large batches, including coalescing highly fragmented inputs into bounded
+  logical tasks without copying their values.
+- Bounded retained MMDB reader snapshots to 512 MiB by default, with an
+  environment override and explicit errors for evicted obsolete generations.
+- Bounded local Rust build artifacts by disabling dev/test debug data and
+  incremental caches, and made the full local check default to one Cargo job.
 
 ## [0.1.2] - 2026-08-24
 

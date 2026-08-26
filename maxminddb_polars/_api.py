@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 from polars.plugins import register_plugin_function
 
+from maxminddb_polars._maxminddb_polars import database_identity
 from maxminddb_polars._schema import normalize_dtype
 
 if TYPE_CHECKING:
@@ -22,13 +23,25 @@ _PLUGIN_PATH = Path(__file__).parent
 
 def _database_identity(database: str | Path) -> dict[str, str | int]:
     path = Path(database).expanduser().resolve(strict=True)
-    stat = path.stat()
     if not path.is_file():
         raise ValueError(f"MMDB path is not a file: {path}")
+    (
+        canonical_path,
+        size,
+        modified_ns,
+        changed_ns,
+        volume_id,
+        file_id,
+        file_id_high,
+    ) = database_identity(str(path))
     return {
-        "canonical_path": str(path),
-        "size": stat.st_size,
-        "modified_ns": stat.st_mtime_ns,
+        "canonical_path": canonical_path,
+        "size": size,
+        "modified_ns": modified_ns,
+        "changed_ns": changed_ns,
+        "volume_id": volume_id,
+        "file_id": file_id,
+        "file_id_high": file_id_high,
     }
 
 
@@ -74,7 +87,9 @@ def lookup_path(
             "dtype": None if dtype is None else normalize_dtype(dtype),
             "strict": strict,
         },
-        is_elementwise=True,
+        # Keep the logical Series together so the native plugin can coalesce
+        # tiny physical chunks into bounded parallel tasks.
+        is_elementwise=False,
     )
 
 

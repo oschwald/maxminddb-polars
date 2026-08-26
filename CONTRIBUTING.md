@@ -24,6 +24,19 @@ uv run --no-sync maturin develop
 The MaxMind-DB submodule contains test fixtures. Do not commit proprietary or
 locally installed `.mmdb` databases.
 
+The default dev/test Cargo profile omits debug data and incremental caches to
+keep Polars build artifacts bounded, and `scripts/check` defaults Cargo to one
+build job. A machine with ample memory may override `CARGO_BUILD_JOBS`.
+For an investigation that needs Rust debug information and incremental state,
+opt in explicitly, for example:
+
+```console
+CARGO_PROFILE_DEV_DEBUG=1 \
+  CARGO_PROFILE_TEST_DEBUG=1 \
+  CARGO_INCREMENTAL=1 \
+  cargo test --locked
+```
+
 To enable the repository's pre-commit hook:
 
 ```console
@@ -57,6 +70,13 @@ Run `precious tidy --all` to apply supported formatting fixes. Benchmarks must
 use release builds and should compare the candidate against a named baseline on
 the same machine. Never commit a full licensed database or benchmark output
 containing database contents.
+
+Benchmark reports include the source revision, tracked-worktree state, report
+schema version, workload, row count, distinct non-null IP count, null-row count,
+and platform-normalized peak RSS. Use
+`--enforce-gates` for gating runs; use the explicit `repeated`, `half`, and
+`high` cardinality modes in `benchmarks/real_city.py` when evaluating lookup
+strategy changes.
 
 ## Pull requests
 

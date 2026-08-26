@@ -34,9 +34,10 @@ result = frame.select(
 country = pl.col("ip").mmdb.lookup_path(database, ("country", "iso_code"))
 ```
 
-Whole records infer one of the nine standard schemas from database metadata:
-City, Country, Enterprise, ISP, Connection Type, Anonymous IP,
-Density/Income, Domain, or ASN. Their stable Polars dtypes are exported from
+Whole records infer one of 14 standard schemas from database metadata: City,
+Country, Enterprise, ISP, Connection Type, Anonymous IP, Anonymous Plus,
+Residential Proxy, IP Risk, Static IP Score, User Count, Density/Income,
+Domain, or ASN. Their stable Polars dtypes are exported from
 `maxminddb_polars.schemas`.
 
 Pass a nested mapping or `pl.Struct` as `dtype` for a partial known record or a
@@ -45,9 +46,9 @@ custom database. See
 
 Inputs must have String dtype. Null inputs, lookup misses, and missing paths
 produce null. Invalid IP strings raise by default; pass `strict=False` to turn
-them into nulls. The package owns a strong byte snapshot for each database file
-generation, so atomically replace database files and construct new expressions
-to refresh them.
+them into nulls. The package caches generation-safe byte snapshots up to a
+documented process limit, so atomically replace database files and construct new
+expressions to refresh them.
 
 ## Development
 

@@ -3,12 +3,15 @@ use std::net::IpAddr;
 
 use maxminddb::LookupResult;
 use polars::prelude::*;
+use polars_arrow::array::Utf8ViewArray;
 use polars_arrow::bitmap::Bitmap;
 use polars_core::runtime::RAYON;
 use polars_utils::aliases::{InitHashMaps, PlHashMap};
 use rayon::prelude::*;
 use serde::Deserialize;
 
+#[cfg(test)]
+use crate::cache::identity_for_path;
 use crate::cache::{CachedReader, DatabaseIdentity, reader_for};
 use crate::guard::catch_mmdb_unwind;
 use crate::known::decode_known;
@@ -165,6 +168,45 @@ pub(crate) struct LookupBatch<'a> {
 
 type DecodedScalarValues<T> = (Vec<Option<T>>, Vec<Option<usize>>);
 
+#[derive(Clone, Copy)]
+struct ScalarInputSlice<'a> {
+    array: &'a Utf8ViewArray,
+    start: usize,
+    end: usize,
+}
+
+impl ScalarInputSlice<'_> {
+    fn len(self) -> usize {
+        self.end - self.start
+    }
+}
+
+fn scalar_input_tasks(ips: &StringChunked) -> Vec<Vec<ScalarInputSlice<'_>>> {
+    let mut tasks = Vec::with_capacity(ips.len().div_ceil(PARALLEL_SCALAR_MAX_CHUNK_ROWS));
+    let mut task = Vec::new();
+    let mut task_rows = 0;
+
+    for array in ips.downcast_iter() {
+        let mut start = 0;
+        while start < array.len() {
+            let rows = (PARALLEL_SCALAR_MAX_CHUNK_ROWS - task_rows).min(array.len() - start);
+            let end = start + rows;
+            task.push(ScalarInputSlice { array, start, end });
+            task_rows += rows;
+            start = end;
+
+            if task_rows == PARALLEL_SCALAR_MAX_CHUNK_ROWS {
+                tasks.push(std::mem::take(&mut task));
+                task_rows = 0;
+            }
+        }
+    }
+    if !task.is_empty() {
+        tasks.push(task);
+    }
+    tasks
+}
+
 pub(crate) fn lookup_batch<'a>(
     ips: &StringChunked,
     reader: &'a CachedReader,
@@ -283,37 +325,34 @@ where
     if ips.is_empty() {
         return Ok(Vec::new());
     }
-    let chunks = ips
-        .downcast_iter()
-        .flat_map(|array| {
-            (0..array.len())
-                .step_by(PARALLEL_SCALAR_MAX_CHUNK_ROWS)
-                .map(move |start| {
-                    let end = (start + PARALLEL_SCALAR_MAX_CHUNK_ROWS).min(array.len());
-                    (array, start, end)
-                })
-        })
-        .collect::<Vec<_>>();
+    let tasks = scalar_input_tasks(ips);
     guard_mmdb_operation(&kwargs.database, || {
         RAYON.install(|| {
-            chunks
+            tasks
                 .into_par_iter()
-                .map(|(array, start, end)| {
-                    let mut values = Vec::with_capacity(end - start);
-                    for index in start..end {
-                        let Some(result) =
-                            lookup_one(array.get(index), reader, &kwargs.database, kwargs.strict)?
-                        else {
-                            values.push(None);
-                            continue;
-                        };
-                        values.push(result.decode_path(path).map_err(|error| {
-                            polars_err!(
-                                ComputeError:
-                                "could not decode MMDB value at path in {:?}: {error}",
-                                kwargs.database.canonical_path
-                            )
-                        })?);
+                .map(|task| {
+                    let task_rows = task.iter().copied().map(ScalarInputSlice::len).sum();
+                    let mut values = Vec::with_capacity(task_rows);
+                    for slice in task {
+                        for index in slice.start..slice.end {
+                            let Some(result) = lookup_one(
+                                slice.array.get(index),
+                                reader,
+                                &kwargs.database,
+                                kwargs.strict,
+                            )?
+                            else {
+                                values.push(None);
+                                continue;
+                            };
+                            values.push(result.decode_path(path).map_err(|error| {
+                                polars_err!(
+                                    ComputeError:
+                                    "could not decode MMDB value at path in {:?}: {error}",
+                                    kwargs.database.canonical_path
+                                )
+                            })?);
+                        }
                     }
                     Ok(build(values))
                 })
@@ -568,7 +607,6 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::path::Path;
-    use std::time::UNIX_EPOCH;
 
     use base64::Engine;
     use maxminddb::Reader;
@@ -580,19 +618,7 @@ mod tests {
 
     fn identity(path: &str) -> DatabaseIdentity {
         let path = Path::new(path).canonicalize().unwrap();
-        let metadata = fs::metadata(&path).unwrap();
-        DatabaseIdentity {
-            canonical_path: path.to_string_lossy().into_owned(),
-            size: metadata.len(),
-            modified_ns: metadata
-                .modified()
-                .unwrap()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-                .try_into()
-                .unwrap(),
-        }
+        identity_for_path(&path).unwrap()
     }
 
     fn kwargs(strict: bool) -> LookupPathKwargs {
@@ -688,6 +714,56 @@ mod tests {
     }
 
     #[test]
+    fn scalar_tasks_stay_bounded_for_large_batches() {
+        let row_count = 1_000_001;
+        let values = vec![Some("89.160.20.128"); row_count];
+        let input = series(&values);
+        let tasks = scalar_input_tasks(input.str().unwrap());
+        let lengths = tasks
+            .iter()
+            .map(|task| {
+                task.iter()
+                    .copied()
+                    .map(ScalarInputSlice::len)
+                    .sum::<usize>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            tasks.len(),
+            row_count.div_ceil(PARALLEL_SCALAR_MAX_CHUNK_ROWS)
+        );
+        assert_eq!(lengths.iter().sum::<usize>(), row_count);
+        assert!(
+            lengths
+                .iter()
+                .all(|length| *length <= PARALLEL_SCALAR_MAX_CHUNK_ROWS)
+        );
+    }
+
+    #[test]
+    fn scalar_tasks_coalesce_fragmented_inputs() {
+        let mut input = series(&[Some("89.160.20.128")]);
+        for _ in 1..PARALLEL_SCALAR_MIN_ROWS {
+            input.append(&series(&[Some("89.160.20.128")])).unwrap();
+        }
+        assert_eq!(input.n_chunks(), PARALLEL_SCALAR_MIN_ROWS);
+
+        let tasks = scalar_input_tasks(input.str().unwrap());
+        assert_eq!(
+            tasks.len(),
+            PARALLEL_SCALAR_MIN_ROWS.div_ceil(PARALLEL_SCALAR_MAX_CHUNK_ROWS)
+        );
+        assert!(tasks.iter().all(|task| {
+            task.iter()
+                .copied()
+                .map(ScalarInputSlice::len)
+                .sum::<usize>()
+                == PARALLEL_SCALAR_MAX_CHUNK_ROWS
+        }));
+    }
+
+    #[test]
     fn scalar_dispatch_respects_row_and_worker_thresholds() {
         let kwargs = kwargs(false);
         let candidates = [
@@ -740,10 +816,24 @@ mod tests {
 
         let parallel =
             lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 3).unwrap();
-        let serial = lookup_path_series_with_workers(&[input], &kwargs, 1).unwrap();
+        let serial =
+            lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 1).unwrap();
 
         assert!(parallel.equals_missing(&serial));
-        assert_eq!(parallel.n_chunks(), 6);
+        assert_eq!(
+            parallel.n_chunks(),
+            input.len().div_ceil(PARALLEL_SCALAR_MAX_CHUNK_ROWS)
+        );
+    }
+
+    #[test]
+    fn parallel_scalar_dispatch_propagates_strict_errors() {
+        let mut values = vec![Some("89.160.20.128"); PARALLEL_SCALAR_MIN_ROWS];
+        values[PARALLEL_SCALAR_MIN_ROWS / 2] = Some("not-an-ip");
+        let input = series(&values);
+
+        let error = lookup_path_series_with_workers(&[input], &kwargs(true), 3).unwrap_err();
+        assert!(error.to_string().contains("invalid IP address"));
     }
 
     fn collect_corrupt_fixtures() -> Vec<std::path::PathBuf> {
@@ -776,6 +866,8 @@ mod tests {
     #[test]
     fn corrupt_fixtures_return_results_without_panicking() {
         let fixtures = collect_corrupt_fixtures();
+        let values = vec![Some("1.1.1.1"); PARALLEL_SCALAR_MIN_ROWS];
+        let input = series(&values);
         assert_eq!(
             fixtures.len(),
             25,
@@ -792,7 +884,7 @@ mod tests {
                     dtype: Some(SchemaSpec::String),
                     strict: false,
                 };
-                let _ = lookup_path_series(&[series(&[Some("1.1.1.1")])], &kwargs);
+                let _ = lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 3);
             }));
             assert!(outcome.is_ok(), "fixture panicked: {}", database.display());
         }

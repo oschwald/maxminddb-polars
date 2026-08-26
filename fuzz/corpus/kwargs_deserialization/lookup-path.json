@@ -1,1 +1,1 @@
-{"database":{"canonical_path":"database.mmdb","size":1,"modified_ns":1},"path":["country","iso_code"],"dtype":{"type":"string"},"strict":true}
+{"database":{"canonical_path":"database.mmdb","size":1,"modified_ns":1,"changed_ns":1,"volume_id":1,"file_id":-1,"file_id_high":-9223372036854775808},"path":["country","iso_code"],"dtype":{"type":"string"},"strict":true}

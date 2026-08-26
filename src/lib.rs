@@ -10,6 +10,7 @@ mod value;
 pub mod fuzzing;
 
 use polars::prelude::*;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3_polars::derive::polars_expr;
 
@@ -18,7 +19,23 @@ use crate::lookup::{LookupPathKwargs, LookupRecordKwargs};
 #[pymodule]
 fn _maxminddb_polars(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    module.add_function(wrap_pyfunction!(database_identity, module)?)?;
     Ok(())
+}
+
+#[pyfunction]
+fn database_identity(path: &str) -> PyResult<(String, u64, u64, i64, i64, i64, i64)> {
+    let identity = cache::identity_for_path(std::path::Path::new(path))
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    Ok((
+        identity.canonical_path,
+        identity.size,
+        identity.modified_ns,
+        identity.changed_ns,
+        identity.volume_id,
+        identity.file_id,
+        identity.file_id_high,
+    ))
 }
 
 #[polars_expr(output_type=String)]
