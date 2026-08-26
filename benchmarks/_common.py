@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ipaddress
 import platform
-import resource
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -41,6 +40,10 @@ def source_provenance() -> dict[str, str | bool | None]:
 
 def peak_rss_kib() -> int:
     """Return peak process RSS in KiB on Linux and macOS."""
+    # ``resource`` is unavailable on Windows. Keep the import local so the
+    # platform-independent helpers in this module remain usable there.
+    import resource
+
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     if platform.system() == "Darwin":
         return (peak + 1023) // 1024
