@@ -19,15 +19,15 @@ makes process memory grow with every database update and distinct database.
 
 Identify a normal filesystem generation by canonical path, byte size,
 nanosecond modification time, and nanosecond metadata-change time. On Unix,
-also include the inode number so an atomic replacement remains distinct even
-when the filesystem reports the same change-time tick for both files. On other
-supported platforms, use creation time and a neutral file identifier. Verify
-the identity before and after reading the file. On Unix, the change time and
-inode detect ordinary atomic replacement and same-size in-place rewrites even
-when modification time is restored. On non-Unix platforms, creation time
-detects ordinary replacement, but a same-size in-place rewrite with restored
-modification time may retain the same identity. Avoid hashing an entire
-database whenever Python constructs an expression.
+also include the device and inode numbers. On Windows, use creation time, the
+volume serial number, and the complete 128-bit file identifier. These file
+identities keep atomic replacements distinct even when the filesystem reports
+the same timestamp tick for both files. Verify the identity before and after
+reading the file. Metadata-change time on Unix also detects same-size in-place
+rewrites whose modification time is restored. A same-size in-place rewrite on
+Windows can retain both its creation time and file identifier, so callers must
+still replace databases atomically. Avoid hashing an entire database whenever
+Python constructs an expression.
 
 Retain snapshots in process-wide insertion order up to 512 MiB by default. The
 `MAXMINDDB_POLARS_CACHE_MAX_BYTES` environment variable may set a different
@@ -46,7 +46,7 @@ generation.
 
 The cache is byte-bounded apart from a single oversized newest database and
 readers held by active evaluations. Insertion order avoids adding a write lock
-to every cache hit. Non-Unix filesystems have a weaker identity because the
-stable Rust metadata API does not expose a change time or file identifier; a
-future content fingerprint remains an option if supported platforms require
-it.
+to every cache hit. Unix and Windows atomic replacements have stable file
+identities; other platforms fall back to timestamps and have a weaker identity.
+A future content fingerprint remains an option if another supported platform
+requires it.

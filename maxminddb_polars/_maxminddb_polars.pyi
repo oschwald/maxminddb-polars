@@ -1,0 +1,3 @@
+__version__: str
+
+def database_identity(path: str, /) -> tuple[str, int, int, int, int, int, int]: ...

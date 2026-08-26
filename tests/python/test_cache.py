@@ -7,8 +7,15 @@ from pathlib import Path
 
 import pytest
 
+from maxminddb_polars._api import _database_identity
+
 DATA = Path(__file__).parents[1] / "data" / "test-data"
 CACHE_LIMIT = "MAXMINDDB_POLARS_CACHE_MAX_BYTES"
+
+
+def _signed_64(value: int) -> int:
+    return value if value < 2**63 else value - 2**64
+
 
 CACHE_SCENARIO = """
 import os
@@ -76,6 +83,21 @@ pl.DataFrame({"ip": ["89.160.20.128"]}).lazy().select(
     )
 ).collect_schema()
 """
+
+
+def test_database_identity_uses_native_file_identity() -> None:
+    database = (DATA / "GeoIP2-City-Test.mmdb").resolve()
+    stat = database.stat()
+
+    assert _database_identity(database) == {
+        "canonical_path": str(database),
+        "size": stat.st_size,
+        "modified_ns": stat.st_mtime_ns,
+        "changed_ns": stat.st_ctime_ns,
+        "volume_id": _signed_64(stat.st_dev),
+        "file_id": _signed_64(stat.st_ino & (2**64 - 1)),
+        "file_id_high": _signed_64(stat.st_ino >> 64),
+    }
 
 
 def _run_isolated(

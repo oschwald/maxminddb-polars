@@ -99,18 +99,18 @@ not prove whether its source map was physically absent.
 ## Database updates
 
 An expression captures the canonical path, byte size, nanosecond modification
-time, filesystem metadata-change or creation time, and the Unix file identity
-when available. Schema planning and execution share a strong in-memory byte
+time, filesystem metadata-change or creation time, and the file identity on
+Unix and Windows. Schema planning and execution share a strong in-memory byte
 snapshot for that generation.
 Atomically replace an MMDB file and construct a new expression to use the
 replacement. In-place changes detected during open fail rather than silently
 mixing generations.
 
-Unix change time and file identity also distinguish same-size replacements and
-in-place rewrites whose modification time is restored. Non-Unix platforms use
-creation time and have a weaker identity: a same-size in-place rewrite with a
-restored modification time might not be detected. Prefer atomic replacement on
-all platforms.
+Unix change time and file identity distinguish same-size replacements and
+in-place rewrites whose modification time is restored. The Windows volume and
+file identity distinguish atomic replacements, but a same-size in-place rewrite
+with a restored modification time might not be detected. Prefer atomic
+replacement on all platforms.
 
 The process-wide snapshot cache retains up to 512 MiB in insertion order by
 default. Set `MAXMINDDB_POLARS_CACHE_MAX_BYTES` before the first lookup to choose

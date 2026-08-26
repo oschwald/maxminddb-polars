@@ -39,6 +39,9 @@ rayon = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", optional = true }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
 base64 = "0.23.1"
 proptest = "1"

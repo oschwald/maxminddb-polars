@@ -21,7 +21,9 @@ pub struct DatabaseIdentity {
     pub size: u64,
     pub modified_ns: u64,
     pub changed_ns: i64,
-    pub file_id: u64,
+    pub volume_id: i64,
+    pub file_id: i64,
+    pub file_id_high: i64,
 }
 
 const DEFAULT_CACHE_MAX_BYTES: usize = 512 * 1024 * 1024;
@@ -166,7 +168,10 @@ fn open_snapshot(identity: &DatabaseIdentity) -> PolarsResult<CachedReader> {
 }
 
 pub(crate) fn identity_for_path(path: &Path) -> PolarsResult<DatabaseIdentity> {
-    let metadata = fs::metadata(path).map_err(
+    let file = fs::File::open(path).map_err(
+        |error| polars_err!(ComputeError: "could not open MMDB {}: {error}", path.display()),
+    )?;
+    let metadata = file.metadata().map_err(
         |error| polars_err!(ComputeError: "could not stat MMDB {}: {error}", path.display()),
     )?;
     if !metadata.is_file() {
@@ -198,27 +203,85 @@ pub(crate) fn identity_for_path(path: &Path) -> PolarsResult<DatabaseIdentity> {
             )
         })?;
     let changed_ns = metadata_changed_ns(&metadata, path)?;
-    let file_id = metadata_file_id(&metadata, path)?;
+    let (volume_id, file_id, file_id_high) = metadata_file_identity(&file, &metadata, path)?;
 
     Ok(DatabaseIdentity {
         canonical_path: canonical_path_string(path),
         size: metadata.len(),
         modified_ns,
         changed_ns,
+        volume_id,
         file_id,
+        file_id_high,
     })
 }
 
 #[cfg(unix)]
-fn metadata_file_id(metadata: &fs::Metadata, _path: &Path) -> PolarsResult<u64> {
+fn metadata_file_identity(
+    _file: &fs::File,
+    metadata: &fs::Metadata,
+    _path: &Path,
+) -> PolarsResult<(i64, i64, i64)> {
     use std::os::unix::fs::MetadataExt;
 
-    Ok(metadata.ino())
+    Ok((signed_bits(metadata.dev()), signed_bits(metadata.ino()), 0))
 }
 
-#[cfg(not(unix))]
-fn metadata_file_id(_metadata: &fs::Metadata, _path: &Path) -> PolarsResult<u64> {
-    Ok(0)
+#[cfg(windows)]
+fn metadata_file_identity(
+    file: &fs::File,
+    _metadata: &fs::Metadata,
+    path: &Path,
+) -> PolarsResult<(i64, i64, i64)> {
+    use std::mem::{MaybeUninit, size_of};
+    use std::os::windows::io::AsRawHandle;
+
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ID_INFO, FileIdInfo, GetFileInformationByHandleEx,
+    };
+
+    let mut information = MaybeUninit::<FILE_ID_INFO>::uninit();
+    // SAFETY: `file` owns a valid handle for the duration of the call, and the
+    // output pointer and byte count describe writable `FILE_ID_INFO` storage.
+    let succeeded = unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileIdInfo,
+            information.as_mut_ptr().cast(),
+            size_of::<FILE_ID_INFO>() as u32,
+        )
+    };
+    if succeeded == 0 {
+        let error = std::io::Error::last_os_error();
+        polars_bail!(
+            ComputeError:
+            "could not read the Windows file identity for MMDB {}: {error}",
+            path.display()
+        )
+    }
+    // SAFETY: a successful call initialized the entire `FILE_ID_INFO` value.
+    let information = unsafe { information.assume_init() };
+    let [low, high] = information.FileId.Identifier.as_chunks::<8>().0 else {
+        unreachable!("Windows file identifiers are 128 bits")
+    };
+    Ok((
+        signed_bits(information.VolumeSerialNumber),
+        signed_bits(u64::from_ne_bytes(*low)),
+        signed_bits(u64::from_ne_bytes(*high)),
+    ))
+}
+
+#[cfg(all(not(unix), not(windows)))]
+fn metadata_file_identity(
+    _file: &fs::File,
+    _metadata: &fs::Metadata,
+    _path: &Path,
+) -> PolarsResult<(i64, i64, i64)> {
+    Ok((0, 0, 0))
+}
+
+fn signed_bits(value: u64) -> i64 {
+    i64::from_ne_bytes(value.to_ne_bytes())
 }
 
 #[cfg(unix)]
@@ -284,8 +347,6 @@ fn canonical_path_string(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs::FileTimes;
-    #[cfg(not(unix))]
-    use std::time::Duration;
 
     use super::*;
 
@@ -339,6 +400,7 @@ mod tests {
         assert_eq!(new_reader.metadata().database_type, "GeoLite2-ASN");
     }
 
+    #[cfg(any(unix, windows))]
     #[test]
     fn distinguishes_same_size_and_mtime_replacements() {
         let directory = tempfile::tempdir().unwrap();
@@ -348,10 +410,6 @@ mod tests {
         let old_reader = reader_for(&old_identity).unwrap();
         let old_modified = fs::metadata(&database).unwrap().modified().unwrap();
 
-        // Non-Unix identities use creation time rather than an inode. Ensure
-        // the replacement is created in a later filesystem clock tick.
-        #[cfg(not(unix))]
-        std::thread::sleep(Duration::from_millis(50));
         let replacement = directory.path().join("replacement.mmdb");
         fs::write(&replacement, vec![0; old_identity.size as usize]).unwrap();
         fs::OpenOptions::new()
@@ -365,8 +423,18 @@ mod tests {
         let new_identity = test_identity(&database);
         assert_eq!(old_identity.size, new_identity.size);
         assert_eq!(old_identity.modified_ns, new_identity.modified_ns);
-        #[cfg(unix)]
-        assert_ne!(old_identity.file_id, new_identity.file_id);
+        assert_ne!(
+            (
+                old_identity.volume_id,
+                old_identity.file_id,
+                old_identity.file_id_high,
+            ),
+            (
+                new_identity.volume_id,
+                new_identity.file_id,
+                new_identity.file_id_high,
+            )
+        );
         assert_ne!(old_identity, new_identity);
         assert!(reader_for(&new_identity).is_err());
         assert_eq!(old_reader.metadata().database_type, "GeoIP2-City");
