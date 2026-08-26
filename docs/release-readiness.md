@@ -12,9 +12,9 @@ settings live in [`maintaining.md`](maintaining.md).
 - All 14 standard database schemas, metadata aliases, scalar and nested paths,
   custom schemas, and validated partial schemas have eager, lazy, streaming,
   cross-platform, dtype, null, strictness, concurrency, and snapshot coverage.
-- Twenty-one Rust tests include differential property tests, every one of the
+- Thirty-one Rust tests include differential property tests, every one of the
   25 pinned corrupt/broken MMDB fixtures, and a fuzz-discovered parser-panic
-  regression. Forty-eight Python tests cover the Python/plugin boundary and
+  regression. Seventy-eight Python tests cover the Python/plugin boundary and
   frozen public surface.
 - Four fuzz targets cover kwargs/schema deserialization, path traversal,
   schema-guided decoding, and malformed databases. Pull requests and pushes
@@ -59,7 +59,7 @@ settings live in [`maintaining.md`](maintaining.md).
   the current pinned results and semantic differences are documented in
   [`comparison.md`](comparison.md).
 
-## Published releases
+## Release history
 
 `v0.1.0` allocated the package name on both crates.io and PyPI. Subsequent
 releases use short-lived OIDC credentials for both registries and require no
@@ -69,10 +69,14 @@ repository upload tokens.
 verification. `v0.1.2` moved to Polars 0.55 and PyO3 0.29, resolving the two
 PyO3 security advisories accepted for the initial release.
 
-## Unreleased validation on 2026-08-25
+`v0.1.3` adds five inferred database schemas, improves scalar lookup throughput
+and memory use, bounds the reader cache and local build artifacts, and makes
+cache identities robust to atomic database replacement on Unix and Windows.
 
-The post-`0.1.2` roadmap branch completed a no-publish rehearsal under a
-3.5 GiB cgroup with swap disabled and one Cargo build job:
+## 0.1.3 validation on 2026-08-25
+
+The `0.1.3` candidate completed release validation under a 3.5 GiB cgroup with
+swap disabled and one Cargo build job:
 
 - `scripts/check` passed all repository formatting, lint, type, metadata,
   lockfile, submodule, and documentation gates, plus 31 Rust tests and 78 Python
@@ -87,4 +91,5 @@ The post-`0.1.2` roadmap branch completed a no-publish rehearsal under a
   installed into a separate clean environment and passed an external City
   lookup.
 
-No tag, GitHub release, registry upload, or publication was created.
+The preparation stage created no tag or registry upload; those actions were
+reserved for the verified merge commit.
