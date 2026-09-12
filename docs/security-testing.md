@@ -1,12 +1,19 @@
 # Security testing
 
-MMDB files and IP strings are treated as untrusted input. Decode, path,
-schema, and I/O failures must become Polars errors or nulls according to the
-documented strictness rules; they must never unwind across the plugin boundary.
+MMDB files and IP strings are treated as untrusted input. Native MMDB open,
+lookup, and decode failures become Polars errors; parser panics must never
+unwind across the plugin boundary. Null inputs and lookup misses produce nulls.
+`strict=False` additionally turns invalid IP strings into nulls, but does not
+suppress database or decoder errors.
 
-The normal Rust suite exercises every MMDB file in the pinned upstream
-corruption corpus: 21 files under `bad-data` and four broken/invalid files under
-`test-data`. It also retains the first fuzz-discovered decoder-overflow input as
+Python-side expression construction validates arguments and filesystem paths
+before invoking the plugin. Invalid arguments can raise `TypeError` or
+`ValueError`, and a missing database path raises `FileNotFoundError`, regardless
+of strictness.
+
+The normal Rust suite exercises the pinned upstream corruption corpus: MMDB
+files under `bad-data` and the broken/invalid fixtures under `test-data`.
+It also retains the first fuzz-discovered decoder-overflow input as
 a base64 regression fixture. Tests exercise the same cached-reader and path
 lookup entry points used by the expression plugin. MMDB open, lookup, and decode
 operations contain upstream parser panics and report a Polars error instead of
@@ -19,7 +26,7 @@ The custom decoder caps untrusted initial container allocation hints. Larger
 legitimate Lists continue to grow normally. The underlying `maxminddb` decoder
 also bounds data access, pointer traversal, and nesting depth.
 
-`maxminddb` 0.32 additionally limits decoded container values and aggregate
+The upstream decoder also limits decoded container values and aggregate
 string/byte payloads, including shared budgets for path navigation and the
 selected value. Metadata has resource limits as well. Oversized records or
 metadata may be structurally valid but still exceed these limits; the plugin
@@ -38,17 +45,19 @@ Four `cargo-fuzz` targets live under `fuzz/`:
 - `malformed_database` covers reader creation, IPv4/IPv6 search, and arbitrary
   value decoding.
 
-Install `cargo-fuzz` 0.13.2 and use a current nightly Rust toolchain:
+Install the `cargo-fuzz` version pinned by
+[`fuzz.yml`](../.github/workflows/fuzz.yml) and use a nightly Rust toolchain:
 
 ```console
-cargo +nightly install cargo-fuzz --version 0.13.2 --locked
 cargo +nightly fuzz run malformed_database -- -max_total_time=300
 ```
 
-Pull requests and pushes run each target for a short bounded interval. The
-weekly job runs each target for two minutes, starts database targets from the
-pinned valid/corrupt fixture corpus, and retains crash artifacts. Promote every
-reproducible crash to a permanent unit fixture before clearing the artifact.
+Pull requests and pushes to `main` that change Rust sources, Cargo metadata,
+fuzz files, or the fuzz workflow run each target for ten seconds. Manual runs
+use the same interval; the weekly job runs each target for two minutes. Every
+run seeds database targets from the pinned valid/corrupt fixture corpus and
+retains crash artifacts on failure. Promote every reproducible crash to a
+permanent unit fixture before clearing the artifact.
 
 Dependency auditing covers both root and fuzz lockfiles. Temporary transitive
 advisory exceptions, their scope, and their expiry are recorded in

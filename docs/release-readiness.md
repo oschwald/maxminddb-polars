@@ -1,34 +1,39 @@
-# 0.1 release record
+# Historical 0.1 release record
 
-The public `0.1` line launched on 2026-08-23. This document records the gates
-used for the initial release; current release instructions live in
-[`CONTRIBUTING.md`](../CONTRIBUTING.md), and current repository and publisher
-settings live in [`maintaining.md`](maintaining.md).
+The public `0.1` line launched on 2026-08-23. This document records validation
+across `0.1.0` through `0.1.3`, including work added after the initial release.
+Test counts, dependency versions, and performance measurements below describe
+those historical candidates.
 
-## Completed gates
+Current release instructions live in [`CONTRIBUTING.md`](../CONTRIBUTING.md),
+supported versions in [`compatibility.md`](compatibility.md), and repository
+and publisher settings in [`maintaining.md`](maintaining.md).
 
-- The public surface is frozen by [ADR 0001](adr/0001-public-api.md) and an
-  executable `__all__` regression test.
+## Gates reached during the 0.1 release line
+
+- The public surface was covered by an executable `__all__` regression test.
+  The supported operations are documented in the [API reference](api.md).
 - All 14 standard database schemas, metadata aliases, scalar and nested paths,
-  custom schemas, and validated partial schemas have eager, lazy, streaming,
+  custom schemas, and validated partial schemas had eager, lazy, streaming,
   cross-platform, dtype, null, strictness, concurrency, and snapshot coverage.
-- Thirty-one Rust tests include differential property tests, every one of the
+- Thirty-one Rust tests included differential property tests, every one of the
   25 pinned corrupt/broken MMDB fixtures, and a fuzz-discovered parser-panic
-  regression. Seventy-eight Python tests cover the Python/plugin boundary and
+  regression. Seventy-eight Python tests covered the Python/plugin boundary and
   frozen public surface.
-- Four fuzz targets cover kwargs/schema deserialization, path traversal,
+- Four fuzz targets covered kwargs/schema deserialization, path traversal,
   schema-guided decoding, and malformed databases. Pull requests and pushes
-  run bounded smoke fuzzing; the weekly schedule runs the seeded corpus longer.
-- Cargo, Python, CodeQL, dependency-review, and workflow-security checks are
-  configured. Transitive Rust advisory exceptions have exact scope, rationale,
-  and a 2026-09-30 re-evaluation deadline in [`maintaining.md`](maintaining.md).
-- The seven-target abi3 wheel matrix and sdist workflow install native wheels
-  on Linux, macOS, and Windows; test Python 3.10 and 3.14 against the same Linux
-  wheel; inspect package contents, licenses, and shared libraries; build from
-  the sdist; run public lookups; generate checksums; and retain the exact
+  ran bounded smoke fuzzing; the weekly schedule ran the seeded corpus longer.
+- Cargo, Python, CodeQL, dependency-review, and workflow-security checks were
+  configured. Transitive Rust advisory exceptions had exact scope, rationale,
+  and a 2026-09-30 re-evaluation deadline. Current exceptions are in
+  [`maintaining.md`](maintaining.md).
+- The seven-target abi3 wheel matrix and sdist workflow installed native wheels
+  on Linux, macOS, and Windows; tested Python 3.10 and 3.14 against the same Linux
+  wheel; inspected package contents, licenses, and shared libraries; built from
+  the sdist; ran public lookups; generated checksums; and retained the exact
   publishable artifacts.
-- The Cargo crate is packaged and compiled in release rehearsals. Published
-  GitHub releases send it to crates.io through OIDC trusted publishing and send
+- The Cargo crate was packaged and compiled in release rehearsals. Published
+  GitHub releases sent it to crates.io through OIDC trusted publishing and sent
   the already-validated Python distributions to PyPI independently.
 - A local no-publish rehearsal passed `scripts/check`, a locked release wheel
   and sdist build, artifact inspection, and strict `twine check`. The exact
@@ -36,27 +41,28 @@ settings live in [`maintaining.md`](maintaining.md).
   environment and passed partial/path streaming lookups outside the checkout.
 - A 33.7 MB real GeoLite2 City database passed the scalar/partial/whole-record
   baseline at 277 MiB peak RSS. The fused partial/scalar ratio was 1.125, inside
-  the 1.30 gate. Whole-record memory now uses Arrow gathers rather than cloning
+  the 1.30 gate. Whole-record memory used Arrow gathers rather than cloning
   recursive records per output row.
-- The final pinned comparison covers both `polars-maxminddb` and
-  `polars-iptools`, validates populated overlapping output, records their
-  missing-value semantic differences, and publishes content-free results.
+- The pinned comparison covered both `polars-maxminddb` and `polars-iptools`,
+  validated populated overlapping output, recorded their missing-value semantic
+  differences, and published content-free results.
 
-## Current constraints
+## Constraints recorded for 0.1.3
 
-- Python Polars support is intentionally `>=1.43.2,<1.44`; native plugin ABI
-  updates require coordinated Rust Polars and `pyo3-polars` changes.
-- Polars still pulls in unmaintained `bincode` 2.0.1. The disabled-cloud
-  `quick-xml` dependency is absent from built targets. These exceptions remain
-  documented and time-bounded.
+- Python Polars support was `>=1.43.2,<1.44`; `0.2.0` later added Polars 1.44.
+  Native plugin ABI updates required coordinated Rust Polars and `pyo3-polars`
+  changes.
+- Polars pulled in unmaintained `bincode` 2.0.1. The disabled-cloud `quick-xml`
+  dependency was absent from built targets. These exceptions were documented
+  and time-bounded.
 - Full Polars debug data previously produced a 32 GiB accumulated local target
-  and a one-job test link near 3.1 GiB. The bounded dev/test profile disables
+  and a one-job test link near 3.1 GiB. The bounded dev/test profile disabled
   debug data and incremental caches; a fresh no-run test target was 1.8 GiB.
-  A cold Polars compile can still exceed a 2.5 GiB cgroup, so constrained local
-  validation should keep Cargo at one job and allow roughly 3.5 GiB. The
+  A cold Polars compile still exceeded a 2.5 GiB cgroup, so constrained local
+  validation used one Cargo job and roughly 3.5 GiB. The
   50%-unique 50,000-row City benchmark peaked near 423 MiB.
-- External performance comparisons are informational rather than release gates;
-  the current pinned results and semantic differences are documented in
+- External performance comparisons were informational rather than release gates;
+  the recorded results and semantic differences are documented in
   [`comparison.md`](comparison.md).
 
 ## Release history
@@ -69,8 +75,8 @@ repository upload tokens.
 verification. `v0.1.2` moved to Polars 0.55 and PyO3 0.29, resolving the two
 PyO3 security advisories accepted for the initial release.
 
-`v0.1.3` adds five inferred database schemas, improves scalar lookup throughput
-and memory use, bounds the reader cache and local build artifacts, and makes
+`v0.1.3` added five inferred database schemas, improved scalar lookup throughput
+and memory use, bounded the reader cache and local build artifacts, and made
 cache identities robust to atomic database replacement on Unix and Windows.
 
 ## 0.1.3 validation on 2026-08-25
@@ -91,5 +97,7 @@ swap disabled and one Cargo build job:
   installed into a separate clean environment and passed an external City
   lookup.
 
-The preparation stage created no tag or registry upload; those actions were
-reserved for the verified merge commit.
+That release used a separate preparation stage that created no tag or registry
+upload; those actions were reserved for the verified merge commit. The current
+helper uses a single invocation from a release branch, as described in
+[`CONTRIBUTING.md`](../CONTRIBUTING.md#releases).

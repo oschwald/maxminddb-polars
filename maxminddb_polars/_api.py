@@ -71,9 +71,13 @@ def lookup_path(
 ) -> pl.Expr:
     """Look up one value at ``path`` for each IP address in ``expr``.
 
-    Null IPs, lookup misses, and missing paths produce null. Invalid IP strings
-    raise a Polars ``ComputeError`` unless ``strict=False``, in which case they
-    also produce null.
+    Null IPs, lookup misses, and paths absent from a record produce null. Known
+    schemas validate paths during planning; an explicit dtype must exactly
+    match the inferred path dtype. Unknown schemas require an explicit dtype.
+
+    Invalid IP strings raise a Polars ``ComputeError`` unless ``strict=False``,
+    in which case they also produce null. Database and decoder resource-limit
+    errors still raise regardless of strictness.
     """
     if not isinstance(strict, bool):
         raise TypeError(f"strict must be a bool, got {strict!r}")
@@ -105,6 +109,10 @@ def lookup(
     Standard MaxMind database schemas are inferred from metadata. Unknown
     databases require an explicit Struct dtype or field-to-dtype mapping. A
     partial Struct selects only those fields from a known database.
+
+    Null IPs and lookup misses produce null records. Invalid IP strings raise
+    a Polars ``ComputeError`` unless ``strict=False``. Database and decoder
+    resource-limit errors still raise regardless of strictness.
     """
     if not isinstance(strict, bool):
         raise TypeError(f"strict must be a bool, got {strict!r}")

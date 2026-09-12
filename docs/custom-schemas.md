@@ -9,6 +9,7 @@ mapping whose leaves are supported Polars dtypes.
 import polars as pl
 import maxminddb_polars as mmp
 
+frame = pl.DataFrame({"ip": ["89.160.20.128", None]})
 projection = {
     "country": {"iso_code": pl.String},
     "location": {
@@ -29,11 +30,15 @@ output dtype and values.
 
 Supported leaves are Boolean, signed and unsigned integers through 128 bits,
 Float32, Float64, String, and Binary. `pl.List` and nested `pl.Struct` can occur
-at any depth. Missing scalar fields are null; missing declared Struct fields
-are present with null descendants, and missing declared Lists are empty. A
-lookup miss or null input makes the outer record null.
+at any depth. Missing scalar fields are null, missing declared Lists are empty,
+and missing declared Structs apply these defaults recursively to their fields.
+A lookup miss, null input, or invalid IP with `strict=False` makes the outer
+record null.
 
-For one field, prefer `lookup_path`. A partial Struct is the fused API for
-several related fields: it performs one search-tree lookup per IP, decodes
-selected leaves once per unique record offset, and assembles their arrays into
-the declared nested Struct.
+For one field, prefer `lookup_path`. Its explicit dtype must exactly match the
+inferred dtype for a known path; partial known Structs use `lookup` instead.
+A partial Struct is the fused API for several related fields: it performs one
+search-tree lookup per valid non-null IP, decodes selected leaves once per
+unique record offset, and assembles their arrays into the declared nested
+Struct. Decoder resource limits apply to custom and partial records too;
+exceeding them raises a Polars `ComputeError` even with `strict=False`.

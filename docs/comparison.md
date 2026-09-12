@@ -1,19 +1,23 @@
 # Comparison with existing Polars integrations
 
-This comparison was rerun on 2026-08-25 against the current public releases of
-both overlapping projects:
+This is the comparison recorded on 2026-08-25 against these pinned releases of
+two overlapping projects:
 
 - [`polars-maxminddb` 0.2.3](https://pypi.org/project/polars-maxminddb/),
   which exposes separate fixed City, Country, and ASN scalar functions;
 - [`polars-iptools` 0.2.2](https://pypi.org/project/polars-iptools/), whose
   broader IP toolkit includes a fixed GeoIP `full` Struct.
 
-`maxminddb-polars` instead accepts the database path on each expression and
+`maxminddb-polars` accepts the database path on each expression and
 supports inferred whole records for 14 database families, arbitrary custom
 Struct schemas, validated partial schemas, and scalar/nested paths. The
 competitors use empty strings and numeric defaults for some missing fields;
-this package preserves MMDB absence as null according to its documented
-validity semantics.
+this package represents missing scalar fields as null according to its
+[documented validity semantics](api.md#dtypes-and-validity).
+
+These results describe the recorded `0.1.3` development revisions and dependency
+versions. They do not establish performance for other versions of these
+packages.
 
 ## Reproducible result
 
@@ -49,8 +53,9 @@ and
 
 ## Reproduction
 
-Install the project and exact tested competitor versions into one isolated
-environment, arrange
+To compare the current checkout with the pinned competitors, install them into
+one isolated environment. To reproduce a historical report, first check out
+its `git_revision` and initialize that revision's submodules. Arrange
 `GeoLite2-City.mmdb` and `GeoLite2-ASN.mmdb` in the directory required by
 `polars-iptools`, and run:
 

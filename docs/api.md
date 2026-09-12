@@ -7,13 +7,13 @@ exposes four public symbols: `__version__`, `lookup`, `lookup_path`, and
 ## Whole records
 
 ```python
-lookup(
+def lookup(
     expr,
     database,
     *,
     dtype=None,
     strict=True,
-) -> pl.Expr
+) -> pl.Expr: ...
 ```
 
 `expr` must resolve to a Polars String column. `database` is a filesystem path
@@ -28,19 +28,26 @@ The equivalent namespace method is
 ## Paths
 
 ```python
-lookup_path(
+def lookup_path(
     expr,
     database,
     path,
     *,
     dtype=None,
     strict=True,
-) -> pl.Expr
+) -> pl.Expr: ...
 ```
 
-`path` is a non-empty sequence of string map keys and integer List indexes.
-Negative indexes count from the end. Known schemas infer scalar, Struct, or
-List results. An unknown schema requires an explicit dtype.
+Pass `path` as a non-empty list or tuple of string map keys and integer List
+indexes, for example `("country", "iso_code")`. Strings are not interpreted as
+dot-separated paths because MMDB map keys can contain dots. Negative indexes
+count from the end. Known schemas infer
+scalar, Struct, or List results and reject unknown fields or incompatible path
+components during planning, even with `strict=False`.
+
+For a known schema, an explicit dtype must exactly match the inferred path
+dtype, including all fields of a nested Struct. Use `lookup(..., dtype=...)`
+to select a partial known Struct. An unknown schema requires an explicit dtype.
 
 The equivalent namespace method is
 `pl.col("ip").mmdb.lookup_path(database, path, dtype=dtype, strict=strict)`.
@@ -79,22 +86,35 @@ Supported leaf dtypes are Boolean, signed and unsigned integers through 128
 bits, Float32, Float64, String, and Binary. Lists and Structs may be nested.
 Unsupported logical types fail during expression construction.
 
-| Condition                             | Result                          |
-| ------------------------------------- | ------------------------------- |
-| Null input                            | null output                     |
-| Valid IP with no record               | null output                     |
-| Missing path                          | null output                     |
-| Missing scalar field                  | null field                      |
-| Missing declared nested Struct        | present Struct with null leaves |
-| Missing declared List                 | empty List                      |
-| Invalid IP, `strict=True`             | Polars compute error            |
-| Invalid IP, `strict=False`            | null output                     |
-| Unknown database without dtype        | schema-planning error           |
-| Known field/dtype mismatch            | schema-planning error           |
-| Corrupt data or custom dtype mismatch | Polars compute error            |
+| Condition                                            | Result                             |
+| ---------------------------------------------------- | ---------------------------------- |
+| Null input                                           | null output                        |
+| Valid IP with no record                              | null output                        |
+| Path absent from a record or List index out of range | null output                        |
+| Missing scalar field                                 | null field                         |
+| Missing declared nested Struct                       | present Struct with field defaults |
+| Missing declared List                                | empty List                         |
+| Invalid IP, `strict=True`                            | Polars compute error               |
+| Invalid IP, `strict=False`                           | null output                        |
+| Unknown database without dtype                       | schema-planning error              |
+| Known field/dtype mismatch                           | schema-planning error              |
+| Path not valid for a known schema                    | schema-planning error              |
+| Corrupt data or custom dtype mismatch                | Polars compute error               |
+| Decoder or metadata resource limit exceeded          | Polars compute error               |
 
-A null outer Struct means the IP had no record. An all-null nested Struct does
-not prove whether its source map was physically absent.
+`strict=False` only converts invalid IP strings to nulls. Database, decode,
+resource-limit, and schema errors still raise. The `maxminddb` decoder bounds
+container values and aggregate string/byte payloads; a structurally valid
+record or metadata section can exceed those bounds. See
+[`security-testing.md`](security-testing.md) for the regression coverage.
+
+For `lookup`, a null outer Struct indicates a lookup miss, null input, or an
+invalid IP with `strict=False`. A Struct-valued `lookup_path` also returns null
+when the selected path is absent from a record.
+
+Missing declared Structs apply field defaults recursively: scalar fields are
+null, Struct fields are present, and List fields are empty. These defaults do
+not prove whether the source map was physically absent.
 
 ## Database updates
 
@@ -118,6 +138,11 @@ a different non-negative byte limit. The newest snapshot is retained even when
 it alone exceeds the limit. An already planned expression uses its old snapshot
 while it remains cached; after eviction it either reopens unchanged bytes or
 returns an error asking the caller to reconstruct the expression.
+
+Eviction removes the cache's reference to a snapshot; an evaluation already
+using it retains its own reference until it completes. The byte limit applies
+to cached database snapshots, with the newest-snapshot exception above. Active
+evaluations and output arrays can use additional memory.
 
 The package never downloads a database. Users are responsible for obtaining,
 updating, and licensing their MMDB files.

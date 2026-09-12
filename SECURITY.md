@@ -9,6 +9,6 @@ Include reproduction steps, affected versions, impact, and any proposed
 mitigation. Maintainers will acknowledge reports as soon as practical and will
 coordinate disclosure after a fix or mitigation is available.
 
-Only the latest published `0.1.x` release is supported. This policy will name
-additional supported release lines if the project begins maintaining them in
-parallel.
+Only the latest published release is supported. Older release lines are not
+maintained in parallel. This policy will name additional supported lines if
+that changes.

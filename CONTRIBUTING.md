@@ -1,17 +1,18 @@
 # Contributing to maxminddb-polars
 
-Thank you for helping improve `maxminddb-polars`. The project is in its initial
-`0.1` release line, so API proposals are welcome, but performance and schema
-changes should include tests and evidence.
+Thank you for helping improve `maxminddb-polars`. API proposals are welcome;
+performance and schema changes should include tests and evidence.
 
 ## Prerequisites
 
 - Git
 - the Rust toolchain selected by `rust-toolchain.toml`
-- Python 3.10 or newer
+- a standard CPython version from the
+  [compatibility matrix](.github/workflows/compatibility.yml)
 - [uv](https://docs.astral.sh/uv/)
 - [Precious](https://github.com/houseabsolute/precious)
-- Prettier for Markdown and YAML formatting
+- Node.js and npm; npm installs the pinned Prettier version for Markdown and
+  YAML formatting
 
 ## Setup
 
@@ -19,6 +20,7 @@ changes should include tests and evidence.
 git submodule update --init --recursive
 uv sync --all-extras --locked --no-install-project
 uv run --no-sync maturin develop
+npm clean-install --ignore-scripts
 ```
 
 The MaxMind-DB submodule contains test fixtures. Do not commit proprietary or
@@ -45,26 +47,29 @@ git config core.hooksPath .githooks
 
 ## Tests and checks
 
-Run the fast pull-request suite with:
+Run the local development checks with:
 
 ```console
 scripts/check
 ```
 
-The equivalent individual commands are:
+The script synchronizes the development environment, rebuilds the native
+extension, installs Prettier, and runs formatting, lint, type, Rust/Python test,
+Rustdoc, metadata, lockfile, and fixture-revision checks. A cold Polars build can
+take substantial time and memory.
+
+After setup, common focused checks are:
 
 ```console
-uv run pytest
+uv run --no-sync pytest
 cargo test --locked
-cargo fmt --all -- --check
-cargo fmt --manifest-path fuzz/Cargo.toml --all -- --check
-cargo clippy --all-targets --all-features --locked -- -D warnings
-cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy
 precious lint --all
 ```
+
+See [`scripts/check`](scripts/check) and [`precious.toml`](precious.toml) for
+the full commands and fixture-revision assertion. The release helper's Bash
+integration tests run with the Python suite on Unix; they use temporary Git
+repositories and stub build/publication tools.
 
 Run `precious tidy --all` to apply supported formatting fixes. Benchmarks must
 use release builds and should compare the candidate against a named baseline on
@@ -91,6 +96,9 @@ The Rust `polars` and `pyo3-polars` dependencies must move together and must be
 validated against the declared Python Polars versions using built wheels.
 
 ## Releases
+
+The release helper requires Bash, Perl, and an authenticated GitHub CLI (`gh`),
+in addition to the development prerequisites and Git push access to `origin`.
 
 Create a release branch from `origin/main` (any name other than `main`), move
 the `Unreleased` changelog entry to `## [X.Y.Z] - YYYY-MM-DD` using today's
