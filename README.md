@@ -2,9 +2,9 @@
 
 Fast Polars expressions for MaxMind DB lookups, implemented in Rust.
 
-The Python API follows Semantic Versioning beginning with `0.1.0`. The
-similarly named crates.io package is the native implementation used to build
-the Python plugin; it does not currently expose a supported Rust API.
+The Python API follows Semantic Versioning. The similarly named crates.io
+package is the native implementation used to build the Python plugin; it does
+not currently expose a supported Rust API.
 
 The package provides nested whole-record lookups for recognized MaxMind DB
 schemas and selective path lookups for efficient enrichment. Callers supply
@@ -44,22 +44,23 @@ Pass a nested mapping or `pl.Struct` as `dtype` for a partial known record or a
 custom database. See
 [Custom and partial schemas](https://github.com/oschwald/maxminddb-polars/blob/main/docs/custom-schemas.md).
 
-Inputs must have String dtype. Null inputs, lookup misses, and missing paths
-produce null. Invalid IP strings raise by default; pass `strict=False` to turn
-them into nulls. The package caches generation-safe byte snapshots up to a
+Inputs must have String dtype. Null inputs, lookup misses, and paths absent
+from a record produce null. Known databases validate paths against their schema
+during planning. Invalid IP strings raise by default; pass `strict=False` to
+turn them into nulls. Database errors, including decoder resource-limit errors,
+still raise. The package caches generation-safe byte snapshots up to a
 documented process limit, so atomically replace database files and construct new
 expressions to refresh them.
 
 ## Development
 
-Initialize the fixtures and run the checks with:
+With the prerequisites in
+[CONTRIBUTING.md](https://github.com/oschwald/maxminddb-polars/blob/main/CONTRIBUTING.md#prerequisites)
+installed, initialize the fixtures and run the development checks:
 
 ```console
 git submodule update --init --recursive
-uv sync --all-extras --locked
-uv run maturin develop
-uv run pytest
-cargo test --locked
+scripts/check
 ```
 
 See
@@ -74,7 +75,7 @@ Documentation:
 - [Performance and benchmarks](https://github.com/oschwald/maxminddb-polars/blob/main/docs/performance.md)
 - [Competitor comparison](https://github.com/oschwald/maxminddb-polars/blob/main/docs/comparison.md)
 - [Security testing](https://github.com/oschwald/maxminddb-polars/blob/main/docs/security-testing.md)
-- [0.1 release record](https://github.com/oschwald/maxminddb-polars/blob/main/docs/release-readiness.md)
+- [Maintainer operations](https://github.com/oschwald/maxminddb-polars/blob/main/docs/maintaining.md)
 
 ## Project policies
 

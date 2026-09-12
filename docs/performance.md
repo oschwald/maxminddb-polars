@@ -4,7 +4,9 @@ Use `lookup_path` when one or a few independent leaves are needed. Use a
 partial Struct when several related leaves should be returned together; it
 performs one search-tree lookup per valid IP and gathers each selected leaf by
 unique record offset. Use `lookup` without a dtype when most or all of a record
-is needed. If several consumers need fields from a whole record, materialize
+is needed. Selecting Struct fields after a whole-record lookup still decodes
+and materializes the full record; select paths or pass a partial dtype to avoid
+that work. If several consumers need fields from a whole record, materialize
 the expression once before selecting its Struct fields.
 
 The implementation has no per-row Python calls and uses no JSON intermediate.
@@ -19,9 +21,18 @@ Density/Income, Domain, and ASN records use typed `maxminddb::geoip2` decoders.
 The five newer known products, partial/custom records, and nested paths use the
 shared schema projection tree and direct Arrow/Polars Struct/List builders.
 
+Partial and custom Structs flatten to leaf paths. Each leaf navigates its path
+independently, reusing the search-tree result, and is decoded once per unique
+record offset. List leaves and nested path outputs use a schema-guided decoder
+that reads requested fields and skips the rest. The resulting arrays are
+gathered into the output Struct. Within each batch, record decoding and
+record-offset gathering are serial; internal parallelism is limited to large
+scalar-path batches.
+
 ## Reproducible fixture baseline
 
-Run:
+After [development setup](../CONTRIBUTING.md#setup), build the native extension
+in release mode and run:
 
 ```console
 uv run --no-sync maturin develop --release --locked
@@ -43,8 +54,14 @@ non-null IP strings, and null input rows.
 `--enforce-gates` exits unsuccessfully after writing the report if a boolean
 gate fails. The committed development result is
 [`benchmarks/results/development-fixtures.json`](../benchmarks/results/development-fixtures.json).
-The same release-mode, single-thread fixture gate runs weekly and can be
-started manually through the `Benchmark` GitHub Actions workflow.
+The release-mode, single-thread fixture gate also runs weekly and can be
+started manually through the `Benchmark` GitHub Actions workflow, which defaults
+to 100,000 rows and seven repeats.
+
+The committed results were measured during `0.1.3` development, with package
+metadata still at `0.1.2`. Each report records its dependencies and source
+revision. Use these historical baselines for context and record fresh results
+for the version and database being evaluated.
 
 The recorded single-worker repeated-fixture scalar and fused-partial results
 are 11.86 and 10.89 million rows per second. The fused/scalar median ratio is
@@ -55,12 +72,12 @@ detection, not production capacity planning.
 ## Real City baseline and scaling
 
 Run `benchmarks/real_city.py` with one Polars thread against a current full City
-database before an alpha/beta/RC candidate. The single-thread run keeps the
-partial/scalar fusion gate comparable across machines and implementation
-changes:
+database when validating a performance-sensitive change or release candidate.
+The single-thread run keeps the partial/scalar fusion gate comparable across
+machines and implementation changes:
 
 ```console
-POLARS_MAX_THREADS=1 uv run python benchmarks/real_city.py \
+POLARS_MAX_THREADS=1 uv run --no-sync python benchmarks/real_city.py \
   /secure/path/GeoIP2-City.mmdb \
   --rows 50000 \
   --repeats 7 \
@@ -79,7 +96,7 @@ Repeat with the intended production thread count and the desired cardinality
 to measure scalar scaling:
 
 ```console
-POLARS_MAX_THREADS=20 uv run python benchmarks/real_city.py \
+POLARS_MAX_THREADS=20 uv run --no-sync python benchmarks/real_city.py \
   /secure/path/GeoIP2-City.mmdb \
   --rows 50000 \
   --repeats 7 \
@@ -90,9 +107,10 @@ POLARS_MAX_THREADS=20 uv run python benchmarks/real_city.py \
 The result file contains metrics and database size, not database contents.
 Database files must never be committed or uploaded as workflow artifacts. Runs
 over 250,000 whole-City rows require `--allow-large-run` and should be isolated
-by an OS/container memory limit. A 33.7 MB real GeoLite2 City database was
-exercised in clean checkouts recorded by each report. With one thread, five
-repeated non-null IP values, and null rows, scalar, three-field partial, and
+by an OS/container memory limit. In the historical `0.1.3` development runs, a
+33.7 MB real GeoLite2 City database was exercised in the clean checkouts recorded
+by each report. With one thread, five repeated non-null IP values, and null
+rows, scalar, three-field partial, and
 whole-City throughput was 9.92, 9.59, and 0.70 million rows per second; the
 partial/scalar ratio was 1.03 and peak RSS was 252 MiB. With 20 threads and
 25,000 unique mapped IPs among 50,000 rows, throughput was 23.89, 4.36, and 0.26
@@ -104,6 +122,6 @@ Content-free metrics are committed as
 [`real-geolite2-city-parallel.json`](../benchmarks/results/real-geolite2-city-parallel.json).
 
 Comparisons with other implementations are informational rather than gates and
-must record exact dependency versions and the same inputs. The current
-reproducible results and semantic differences are in
+must record exact dependency versions and the same inputs. The recorded
+comparison results and semantic differences are in
 [`comparison.md`](comparison.md).
