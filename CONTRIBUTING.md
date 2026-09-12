@@ -92,23 +92,29 @@ validated against the declared Python Polars versions using built wheels.
 
 ## Releases
 
-Create `release/vX.Y.Z` from `origin/main`, move the `Unreleased` changelog
-entry to `## [X.Y.Z] - YYYY-MM-DD`, and run:
+Create a release branch from `origin/main` (any name other than `main`), move
+the `Unreleased` changelog entry to `## [X.Y.Z] - YYYY-MM-DD` using today's
+date, and commit the changelog. With a clean working tree, run:
 
 ```console
 dev-bin/release.sh
 ```
 
-The helper validates the Cargo crate, wheel, sdist, tests, and metadata before
-creating and pushing the release-preparation commit. Merge its pull request,
-update local `main`, and start the release from the verified merge commit with:
+The helper checks that the branch includes `origin/main`, updates the Cargo
+version and lockfiles, and validates the crate, wheel, sdist, tests, and metadata.
+It shows the diff and release notes, then asks for confirmation to commit any
+version changes, push the branch to `origin`, and create the GitHub release from
+that commit. Declining or failing validation restores the generated version
+changes. After publication, open a pull request to merge the release branch into
+`main`.
+
+To validate the current committed package without changing versions, committing,
+pushing, or creating a release, run:
 
 ```console
-dev-bin/release.sh --publish
+dev-bin/release.sh --dry-run
 ```
 
 Both registry projects are established. The `release.yml` workflow publishes
 to crates.io and PyPI with short-lived OIDC credentials through the `release`
-and `pypi` environments, respectively; normal releases do not use local upload
-tokens. The helper retains a guarded token-based bootstrap path only for a new
-registry project.
+and `pypi` environments, respectively; releases do not use local upload tokens.
