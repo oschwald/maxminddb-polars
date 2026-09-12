@@ -86,7 +86,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
         if: runner.os == 'Linux' && matrix.target == 'aarch64'
         with:
           platforms: arm64
@@ -99,7 +99,7 @@ jobs:
         if: matrix.smoke
         shell: bash
         run: |
-          python -m pip install "polars>=1.43.2,<1.44"
+          python -m pip install "polars>=1.43.2,<1.45"
           python - <<'PY'
           import glob
           import subprocess
@@ -151,11 +151,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - python: "3.10"
-            polars: "1.43.2"
-          - python: "3.14"
-            polars: "1.43.2"
+        python: ["3.10", "3.14"]
+        polars: ["1.43.2", "1.44.1", "1.44.2"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -210,7 +207,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
       - run: uv sync --all-extras --locked --no-install-project
       - run: uv run --no-sync maturin sdist --out dist
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -233,10 +230,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: stable
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: wheel-*
@@ -251,14 +248,14 @@ jobs:
         run: |
           cargo metadata --locked --format-version 1 --no-deps >/dev/null
           uv lock --check
-          test "$(git -C tests/data rev-parse HEAD)" = "e1120013c4b5cbc830b958b2b7e73fba444d316d"
+          test "$(git -C tests/data rev-parse HEAD)" = "263906163c8f14682ad49a2e2bb351ce412db0bf"
           git diff --exit-code
-      - run: python -m pip install twine==6.2.0
+      - run: python -m pip install twine==7.0.0
       - run: python -m twine check --strict dist/*
       - name: Build and smoke-test from sdist
         shell: bash
         run: |
-          python -m pip install "polars>=1.43.2,<1.44"
+          python -m pip install "polars>=1.43.2,<1.45"
           python -m pip wheel --no-deps --wheel-dir sdist-wheel dist/*.tar.gz
           python scripts/inspect_artifacts.py sdist-wheel/*.whl
           python -m pip install --no-index --no-deps sdist-wheel/*.whl

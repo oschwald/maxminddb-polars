@@ -19,6 +19,14 @@ The custom decoder caps untrusted initial container allocation hints. Larger
 legitimate Lists continue to grow normally. The underlying `maxminddb` decoder
 also bounds data access, pointer traversal, and nesting depth.
 
+`maxminddb` 0.32 additionally limits decoded container values and aggregate
+string/byte payloads, including shared budgets for path navigation and the
+selected value. Metadata has resource limits as well. Oversized records or
+metadata may be structurally valid but still exceed these limits; the plugin
+reports a Polars `ComputeError` even with `strict=False`. Regression tests
+cover both rejected inputs and records at the supported limits, plus valid
+empty containers at the end of metadata.
+
 ## Fuzzing
 
 Four `cargo-fuzz` targets live under `fuzz/`:

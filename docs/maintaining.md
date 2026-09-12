@@ -12,12 +12,12 @@ publishing changes.
 - Default branch: `main`
 - Settings last verified: 2026-08-24
 - License: ISC
-- Rust release toolchain: 1.96.0
+- Rust release toolchain: 1.98.1
 - Python floor: 3.10
-- Python Polars range: 1.43.x
+- Python Polars range: >=1.43.2,<1.45
 - Rust Polars/pyo3-polars/PyO3: 0.55.2/0.28.0/0.29.2
-- maxminddb: 0.30.1
-- MaxMind-DB fixture commit: `e1120013c4b5cbc830b958b2b7e73fba444d316d`
+- maxminddb: 0.32.0
+- MaxMind-DB fixture commit: `263906163c8f14682ad49a2e2bb351ce412db0bf`
 
 Exact-name checks on 2026-08-23 found no `maxminddb-polars` project on PyPI,
 crates.io, npm, or `oschwald` GitHub. These observations do not reserve names.

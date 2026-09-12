@@ -891,7 +891,85 @@ mod tests {
     }
 
     #[test]
-    fn fuzz_discovered_extended_type_overflow_is_a_decoder_error() {
+    fn projected_decoder_enforces_resource_limits() {
+        for (fixture, inner, message) in [
+            (
+                "MaxMind-DB-test-decoder-value-limit-over.mmdb",
+                SchemaSpec::UInt16,
+                "maximum number of data structure values",
+            ),
+            (
+                "MaxMind-DB-test-decoder-payload-limit-over.mmdb",
+                SchemaSpec::Binary,
+                "maximum size of data structure string and bytes",
+            ),
+            (
+                "MaxMind-DB-test-payload-amplification-dos.mmdb",
+                SchemaSpec::Binary,
+                "maximum size of data structure string and bytes",
+            ),
+        ] {
+            let reader = Reader::open_readfile(format!("tests/data/test-data/{fixture}")).unwrap();
+            let result = reader.lookup("1.2.3.4".parse().unwrap()).unwrap();
+            let schema = SchemaSpec::List {
+                inner: Box::new(inner),
+            };
+
+            let error = with_projected_schema(&schema, || decode_projected_path(&result, &[]))
+                .expect_err("oversized projected values must be rejected");
+
+            assert!(
+                matches!(&error, maxminddb::MaxMindDbError::ResourceLimit { .. }),
+                "{fixture}: {error}"
+            );
+            assert!(error.to_string().contains(message), "{fixture}: {error}");
+        }
+    }
+
+    #[test]
+    fn projected_decoder_accepts_resource_limit_boundaries() {
+        for (fixture, inner, expected_length, expected_payload) in [
+            (
+                "MaxMind-DB-test-decoder-value-limit.mmdb",
+                SchemaSpec::UInt16,
+                (1 << 16) - 1,
+                0,
+            ),
+            (
+                "MaxMind-DB-test-decoder-payload-limit.mmdb",
+                SchemaSpec::Binary,
+                33,
+                2 << 20,
+            ),
+        ] {
+            let reader = Reader::open_readfile(format!("tests/data/test-data/{fixture}")).unwrap();
+            let result = reader.lookup("1.2.3.4".parse().unwrap()).unwrap();
+            let schema = SchemaSpec::List {
+                inner: Box::new(inner),
+            };
+
+            let value = with_projected_schema(&schema, || decode_projected_path(&result, &[]))
+                .unwrap()
+                .unwrap();
+            let Value::List(values) = value else {
+                panic!("expected a list from {fixture}")
+            };
+
+            assert_eq!(values.len(), expected_length, "{fixture}");
+            let payload: usize = values
+                .iter()
+                .map(|value| match value {
+                    Value::Binary(bytes) => bytes.len(),
+                    Value::UInt16(0) => 0,
+                    other => panic!("unexpected value in {fixture}: {other:?}"),
+                })
+                .sum();
+            assert_eq!(payload, expected_payload, "{fixture}");
+        }
+    }
+
+    #[test]
+    fn fuzz_discovered_extended_type_overflow_is_an_invalid_database_error() {
         let encoded =
             include_str!("../tests/fuzz-fixtures/projected-value-extended-type-overflow.mmdb.b64");
         let bytes = base64::engine::general_purpose::STANDARD
@@ -906,10 +984,11 @@ mod tests {
         let error = with_projected_schema(&schema, || decode_projected_path(&result, &[]))
             .expect_err("malformed extended types must be rejected");
 
-        assert!(
-            error.to_string().contains("expected map, got type 258"),
-            "{error}"
-        );
+        assert!(matches!(
+            error,
+            maxminddb::MaxMindDbError::InvalidDatabase { message, offset: Some(_) }
+                if message.contains("unknown data type: 258")
+        ));
     }
 
     fn projected_schema() -> SchemaSpec {

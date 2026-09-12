@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Updated `maxminddb` from 0.30.1 to 0.32.0. Decoder resource limits can reject
+  oversized records or metadata that previously decoded successfully. These
+  failures raise Polars `ComputeError`, including when `strict=False`.
+- Added Python Polars 1.44 support while retaining the 1.43.2 minimum.
+- Updated Rust and Python dependencies, Maturin, the Rust toolchain, CI tools,
+  and the MaxMind-DB test fixtures. Dependabot now covers the fuzz workspace and
+  all Rust and Python dependency types.
+
 ## [0.1.3] - 2026-08-26
 
 ### Added
