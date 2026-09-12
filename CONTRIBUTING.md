@@ -108,13 +108,16 @@ date, and commit the changelog. With a clean working tree, run:
 dev-bin/release.sh
 ```
 
-The helper checks that the branch includes `origin/main`, updates the Cargo
-version and lockfiles, and validates the crate, wheel, sdist, tests, and metadata.
+The helper checks that the branch includes `origin/main`, updates and stages the
+Cargo version and lockfiles, and validates the crate, wheel, sdist, tests, and
+metadata.
 It shows the diff and release notes, then asks for confirmation to commit any
 version changes, push the branch to `origin`, and create the GitHub release from
-that commit. Declining or failing validation restores the generated version
-changes. After publication, open a pull request to merge the release branch into
-`main`.
+that commit. It stops if the source changes during validation or confirmation,
+or if the committed tree differs from the validated candidate. Declining or
+failing a release preserves local changes, including generated version updates,
+for inspection. Review and commit or discard them before retrying. After
+publication, open a pull request to merge the release branch into `main`.
 
 To validate the current committed package without changing versions, committing,
 pushing, or creating a release, run:

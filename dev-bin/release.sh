@@ -24,10 +24,23 @@ branch=$(git symbolic-ref --quiet --short HEAD) || {
     echo "A release cannot be run from a detached HEAD." >&2
     exit 1
 }
-if [[ -n "$(git status --porcelain)" ]]; then
+if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
     echo "The working tree must be clean. Commit the changelog before releasing." >&2
     exit 1
 fi
+release_head=$(git rev-parse HEAD)
+release_tree=$(git rev-parse HEAD^{tree})
+
+verify_release_tree() {
+    if [[ "$(git symbolic-ref --quiet --short HEAD)" != "$branch" ||
+          "$(git rev-parse HEAD)" != "$release_head" ||
+          "$(git write-tree)" != "$release_tree" ]] ||
+        ! git diff --quiet ||
+        [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+        echo "The source changed during release validation. Local changes have been preserved; review them and rerun the release." >&2
+        exit 1
+    fi
+}
 
 release_pattern='^## \[([0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?)\] - ([0-9]{4}-[0-9]{2}-[0-9]{2})$'
 release_heading=$(grep -m1 -E "$release_pattern" CHANGELOG.md || true)
@@ -87,16 +100,22 @@ if ! $dry_run; then
         exit 1
     fi
 
-    # The tree started clean; discard generated version changes if validation
-    # fails or the release is declined. Keep them once they have been committed.
-    trap 'git restore --source=HEAD --staged --worktree -- Cargo.toml Cargo.lock fuzz/Cargo.lock' EXIT
-
     perl -0pi -e \
         's/^version = "[^"]+"/version = "'"$version"'"/m' Cargo.toml
     cargo check
     cargo check --manifest-path fuzz/Cargo.toml
+
+    if ! git diff --cached --quiet; then
+        echo "The index changed during version preparation. Local changes have been preserved." >&2
+        exit 1
+    fi
+    # Freeze the candidate before validation. Leave all changes in place if
+    # validation or confirmation fails, including edits made by another process.
+    git add Cargo.toml Cargo.lock fuzz/Cargo.lock
+    release_tree=$(git write-tree)
 fi
 
+verify_release_tree
 scripts/check
 cargo publish --dry-run --locked --allow-dirty
 
@@ -106,10 +125,11 @@ uv run --no-sync maturin sdist --out "$artifact_dir"
 uv run --no-sync python scripts/inspect_artifacts.py \
     --expected-version "$pep440_version" "$artifact_dir"/*
 uv run --no-sync twine check --strict "$artifact_dir"/*
+verify_release_tree
 
 echo
 echo "Release diff:"
-git diff -- Cargo.toml Cargo.lock fuzz/Cargo.lock
+git diff --cached -- Cargo.toml Cargo.lock fuzz/Cargo.lock
 echo
 echo "Release notes:"
 printf '%s\n' "$notes"
@@ -124,18 +144,25 @@ fi
 
 read -r -p "Commit changes, push to origin, and create GitHub release $tag? [y/N] " answer
 if [[ ! "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
-    echo "Aborting."
+    echo "Aborting; any local changes have been preserved."
     exit 1
 fi
 
-git add Cargo.toml Cargo.lock fuzz/Cargo.lock
+verify_release_tree
 if ! git diff --cached --quiet; then
     git commit -m "Prepare $tag release"
 fi
-trap - EXIT
 
 head=$(git rev-parse HEAD)
-git push --set-upstream origin "$branch"
+if [[ "$(git symbolic-ref --quiet --short HEAD)" != "$branch" ||
+      "$(git rev-parse "$head^{tree}")" != "$release_tree" ||
+      -n "$(git status --porcelain --untracked-files=all)" ]]; then
+    echo "The source changed while committing the release. Local changes have been preserved; nothing was published." >&2
+    exit 1
+fi
+git push origin "$head:refs/heads/$branch"
+git config "branch.$branch.remote" origin
+git config "branch.$branch.merge" "refs/heads/$branch"
 gh release create --target "$head" --title "$version" --notes "$notes" "$tag"
 
 echo "Release created. Follow the Release workflow until publication completes."

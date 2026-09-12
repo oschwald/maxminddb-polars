@@ -20,6 +20,7 @@ TOOL_STUB = """\
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -33,6 +34,12 @@ if name == "cargo" and args[0] == "check":
     lock = Path("fuzz/Cargo.lock" if "--manifest-path" in args else "Cargo.lock")
     updated = re.sub(r'version = "[^"]+"', f'version = "{version}"', lock.read_text())
     lock.write_text(updated)
+if name == "check" and os.environ.get("RELEASE_TEST_EDIT"):
+    path = Path(os.environ["RELEASE_TEST_EDIT"])
+    with path.open("a") as source:
+        source.write("# user edit\\n")
+    if os.environ.get("RELEASE_TEST_STAGE"):
+        subprocess.run(["git", "add", str(path)], check=True)
 if os.environ.get("RELEASE_TEST_FAIL") == name:
     sys.exit(1)
 if name == "gh" and args[:2] == ["release", "view"]:
@@ -216,7 +223,7 @@ def test_release_with_versions_already_updated(release_repo: ReleaseRepo) -> Non
 
 
 @pytest.mark.parametrize("answer", ["n\n", "\n", ""])
-def test_declining_restores_versions(release_repo: ReleaseRepo, answer: str) -> None:
+def test_declining_preserves_versions(release_repo: ReleaseRepo, answer: str) -> None:
     repo = release_repo
     head = repo.git("rev-parse", "HEAD")
 
@@ -224,12 +231,13 @@ def test_declining_restores_versions(release_repo: ReleaseRepo, answer: str) -> 
 
     assert result.returncode != 0
     assert "Validated v1.2.3" in result.stdout
-    assert repo.git("status", "--porcelain") == ""
+    assert 'version = "1.2.3"' in (repo.root / "Cargo.toml").read_text()
+    assert repo.git("status", "--porcelain") != ""
     repo.assert_unpublished(head)
 
 
 @pytest.mark.parametrize("tool", ["cargo", "check", "uv"])
-def test_validation_failure_restores_versions(
+def test_validation_failure_preserves_versions(
     release_repo: ReleaseRepo, tool: str
 ) -> None:
     repo = release_repo
@@ -239,7 +247,89 @@ def test_validation_failure_restores_versions(
     result = repo.run()
 
     assert result.returncode != 0
-    assert repo.git("status", "--porcelain") == ""
+    assert 'version = "1.2.3"' in (repo.root / "Cargo.toml").read_text()
+    assert repo.git("status", "--porcelain") != ""
+    repo.assert_unpublished(head)
+
+
+@pytest.mark.parametrize("staged", [False, True])
+def test_validation_failure_preserves_user_edits(
+    release_repo: ReleaseRepo, staged: bool
+) -> None:
+    repo = release_repo
+    head = repo.git("rev-parse", "HEAD")
+    repo.env["RELEASE_TEST_FAIL"] = "check"
+    repo.env["RELEASE_TEST_EDIT"] = "Cargo.toml"
+    if staged:
+        repo.env["RELEASE_TEST_STAGE"] = "1"
+
+    result = repo.run()
+
+    assert result.returncode != 0
+    assert (repo.root / "Cargo.toml").read_text().endswith("# user edit\n")
+    assert ("# user edit" in repo.git("show", ":Cargo.toml")) == staged
+    repo.assert_unpublished(head)
+
+
+@pytest.mark.parametrize("path", ["Cargo.toml", "CHANGELOG.md", "untracked"])
+@pytest.mark.parametrize("staged", [False, True])
+def test_source_changes_during_validation_prevent_publication(
+    release_repo: ReleaseRepo, path: str, staged: bool
+) -> None:
+    repo = release_repo
+    head = repo.git("rev-parse", "HEAD")
+    repo.env["RELEASE_TEST_EDIT"] = path
+    if staged:
+        repo.env["RELEASE_TEST_STAGE"] = "1"
+    repo.git("config", "status.showUntrackedFiles", "no")
+
+    result = repo.run()
+
+    assert result.returncode != 0
+    assert "source changed during release validation" in result.stderr
+    assert (repo.root / path).read_text().endswith("# user edit\n")
+    if staged:
+        assert repo.git("show", f":{path}").endswith("# user edit")
+    repo.assert_unpublished(head)
+
+
+@pytest.mark.parametrize("change", ["edit", "commit", "branch"])
+def test_source_changes_while_confirming_prevent_publication(
+    release_repo: ReleaseRepo, change: str
+) -> None:
+    repo = release_repo
+    with subprocess.Popen(
+        ["bash", "dev-bin/release.sh"],
+        cwd=repo.root,
+        env=repo.env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    ) as process:
+        assert process.stdout is not None
+        for line in process.stdout:
+            if line.startswith("Artifacts are in"):
+                break
+        else:
+            pytest.fail("The helper stopped before release confirmation")
+        if change == "branch":
+            repo.git("switch", "-c", "another-branch")
+        else:
+            with (repo.root / "Cargo.toml").open("a") as source:
+                source.write("# user edit\n")
+            if change == "commit":
+                repo.commit("User commit during confirmation")
+        head = repo.git("rev-parse", "HEAD")
+        status = repo.git("status", "--porcelain")
+
+        output, _ = process.communicate("y\n", timeout=30)
+
+        assert process.returncode != 0
+        assert "source changed during release validation" in output
+    assert repo.git("status", "--porcelain") == status
+    if change != "branch":
+        assert (repo.root / "Cargo.toml").read_text().endswith("# user edit\n")
     repo.assert_unpublished(head)
 
 
@@ -277,6 +367,7 @@ def test_invalid_source_is_rejected(release_repo: ReleaseRepo, state: str) -> No
             repo.git("add", "CHANGELOG.md")
     elif state == "untracked":
         (repo.root / "untracked").touch()
+        repo.git("config", "status.showUntrackedFiles", "no")
     else:
         repo.changelog(day="2000-01-01")
         repo.commit("Set old date")
@@ -330,18 +421,105 @@ def test_existing_tag_or_release_is_rejected(
     repo.assert_unpublished(head)
 
 
-def test_commit_failure_restores_versions(release_repo: ReleaseRepo) -> None:
+def test_commit_failure_preserves_staged_and_unstaged_edits(
+    release_repo: ReleaseRepo,
+) -> None:
     repo = release_repo
     hook = repo.root / ".git/hooks/pre-commit"
-    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.write_text(
+        "#!/bin/sh\n"
+        "echo '# staged user edit' >> Cargo.toml\n"
+        "git add Cargo.toml\n"
+        "echo '# unstaged user edit' >> Cargo.toml\n"
+        "exit 1\n"
+    )
     hook.chmod(0o755)
     head = repo.git("rev-parse", "HEAD")
 
     result = repo.run()
 
     assert result.returncode != 0
-    assert repo.git("status", "--porcelain") == ""
+    assert (
+        (repo.root / "Cargo.toml")
+        .read_text()
+        .endswith("# staged user edit\n# unstaged user edit\n")
+    )
+    assert repo.git("show", ":Cargo.toml").endswith("# staged user edit")
     repo.assert_unpublished(head)
+
+
+@pytest.mark.parametrize("change", ["worktree", "index", "untracked"])
+def test_successful_commit_hook_changes_prevent_publication(
+    release_repo: ReleaseRepo, change: str
+) -> None:
+    repo = release_repo
+    path = "untracked" if change == "untracked" else "CHANGELOG.md"
+    hook = repo.root / ".git/hooks/pre-commit"
+    hook.write_text(
+        f"#!/bin/sh\necho '# user edit' >> {path}\n"
+        + (f"git add {path}\n" if change == "index" else "")
+    )
+    hook.chmod(0o755)
+    repo.git("config", "status.showUntrackedFiles", "no")
+
+    result = repo.run()
+
+    assert result.returncode != 0
+    assert "source changed while committing" in result.stderr
+    assert (repo.root / path).read_text().endswith("# user edit\n")
+    assert repo.git("ls-remote", "origin", "refs/heads/publish-next") == ""
+    assert not any(call[:3] == ["gh", "release", "create"] for call in repo.calls)
+
+
+def test_push_uses_the_verified_commit_if_the_branch_moves(
+    release_repo: ReleaseRepo,
+) -> None:
+    repo = release_repo
+    real_git = shutil.which("git")
+    assert real_git is not None
+    wrapper = Path(repo.env["PATH"].split(os.pathsep)[0]) / "git"
+    # Move the branch before Git resolves the push source, not in pre-push.
+    wrapper.write_text(
+        f"#!{sys.executable}\n"
+        "import os, subprocess, sys\n"
+        "from pathlib import Path\n"
+        f"real_git = {real_git!r}\n"
+        "if sys.argv[1] == 'push':\n"
+        "    with Path('CHANGELOG.md').open('a') as source:\n"
+        "        source.write('# user edit\\n')\n"
+        "    subprocess.run([real_git, 'add', 'CHANGELOG.md'], check=True)\n"
+        "    subprocess.run([real_git, 'commit', '-m',\n"
+        "                    'User commit during push'], check=True)\n"
+        "os.execv(real_git, [real_git, *sys.argv[1:]])\n"
+    )
+    wrapper.chmod(0o755)
+
+    result = repo.run()
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    released_head = repo.git("rev-parse", "HEAD^")
+    assert repo.git("log", "-1", "--format=%s") == "User commit during push"
+    assert (
+        repo.git("ls-remote", "origin", "refs/heads/publish-next").split()[0]
+        == released_head
+    )
+    assert repo.calls[-1][:5] == ["gh", "release", "create", "--target", released_head]
+
+
+def test_release_from_a_single_branch_clone(release_repo: ReleaseRepo) -> None:
+    repo = release_repo
+    repo.git(
+        "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main"
+    )
+
+    result = repo.run()
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    head = repo.git("rev-parse", "HEAD")
+    assert repo.git("ls-remote", "origin", "refs/heads/publish-next").split()[0] == head
+    assert repo.git("config", "branch.publish-next.remote") == "origin"
+    assert repo.git("config", "branch.publish-next.merge") == "refs/heads/publish-next"
+    assert repo.calls[-1][:5] == ["gh", "release", "create", "--target", head]
 
 
 def test_push_failure_does_not_create_release(release_repo: ReleaseRepo) -> None:
