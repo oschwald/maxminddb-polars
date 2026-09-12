@@ -30,17 +30,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - python: "3.10"
-            polars: "1.43.2"
-          - python: "3.11"
-            polars: "1.43.2"
-          - python: "3.12"
-            polars: "1.43.2"
-          - python: "3.13"
-            polars: "1.43.2"
-          - python: "3.14"
-            polars: "1.43.2"
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        polars: ["1.43.2", "1.44.1", "1.44.2"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,10 +40,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
-      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: stable
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
       - run: >-
           uv sync --python "$PYTHON_VERSION" --all-extras --locked
           --no-install-project

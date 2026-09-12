@@ -1,7 +1,11 @@
 version: 2
 updates:
   - package-ecosystem: cargo
-    directory: /
+    directories:
+      - /
+      - /fuzz
+    allow:
+      - dependency-type: all
     schedule:
       interval: weekly
       day: monday
@@ -15,11 +19,15 @@ updates:
         patterns:
           - polars
           - polars-arrow
+          - polars-core
+          - polars-utils
           - pyo3
           - pyo3-polars
 
   - package-ecosystem: uv
     directory: /
+    allow:
+      - dependency-type: all
     schedule:
       interval: weekly
       day: monday
