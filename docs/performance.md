@@ -7,10 +7,10 @@ unique record offset. Use `lookup` without a dtype when most or all of a record
 is needed. Selecting Struct fields after a whole-record lookup still decodes
 and materializes the full record; select paths or pass a partial dtype to avoid
 that work. Polars 2.0 can share repeated deterministic lookup expressions.
-For example, several field selections from the same `lookup` can use one
-whole-record lookup. This reuse does not push field selections into the
-decoder. On Polars 1.44, materialize the expression once before selecting its
-Struct fields to avoid repeated lookups.
+Nested field selections can still leave several whole-record lookups in the
+optimized plan. This reuse does not push field selections into the decoder.
+To avoid repeated whole-record lookups on either version, assign the result to
+a column with `with_columns`, then select its Struct fields.
 
 Polars 2.0 defaults lazy queries to streaming. Whole-record and partial-record
 lookups can run in streaming batches. Scalar-path lookups retain their existing
@@ -37,6 +37,54 @@ that reads requested fields and skips the rest. The resulting arrays are
 gathered into the output Struct. Within each batch, record decoding and
 record-offset gathering are serial; internal parallelism is limited to large
 scalar-path batches.
+
+## Polars 1.44.2 and 2.0.0 comparison
+
+The comparison covers 240 isolated operation runs measured on 2026-10-17.
+Both versions used the same release wheel, built with Rust 1.99.1, on Python
+3.13.12 and Linux x86-64 with an Intel Core Ultra 7 265K. Each run measured
+50,000 rows seven times after warm-up.
+Inputs used one physical chunk so workload construction did not change
+parallelism between Polars versions.
+
+The runs cover the test fixtures and a 50.9 MB GeoLite2 City database, with
+repeated, 50%-unique, and all-unique City inputs. They compare one and 20 Polars
+workers across `auto`, `in-memory`, and `streaming`.
+
+For the 20-worker, 50%-unique City workload, median throughput was:
+
+| Operation                           | Polars 1.44.2 auto | Polars 2.0.0 auto | Polars 2.0.0 in-memory |
+| ----------------------------------- | ------------------ | ----------------- | ---------------------- |
+| One scalar path                     | 29.28              | 26.95             | 29.76                  |
+| Three scalar paths                  | 14.61              | 8.23              | 15.35                  |
+| Three-field partial Struct          | 4.70               | 18.38             | 4.60                   |
+| Fields selected after a full lookup | 0.15               | 0.62              | 0.16                   |
+| Full City record                    | 0.18               | 1.24              | 0.19                   |
+
+Throughput is in millions of rows per second. The streaming default improved
+partial and whole-record throughput in this parallel workload. Scalar paths
+kept their in-memory fallback and were faster with explicit `in-memory` on
+Polars 2.0. With one worker, the streaming default also reduced partial-record
+throughput. Select the engine for the workload rather than assuming the new
+default is faster.
+
+Higher throughput can use more memory. For full City records in the table,
+peak RSS rose from 615 MiB with Polars 1.44.2 `auto` to 1045 MiB with
+Polars 2.0.0 `auto`. These peaks include workload construction and warm-up.
+Each configuration ran in one process. Repeat measurements on the target
+machine before treating small timing differences as regressions.
+
+Expression reuse is separate from streaming parallelism. For `city_fields`,
+the optimized in-memory plan contained three whole-record lookup nodes in
+Polars 1.44.2 and two in 2.0.0. With one worker and repeated City addresses,
+throughput rose from 0.23 to 0.35 million rows per second. The partial Struct
+reached 11.42 million rows per second on Polars 2.0.0 in the same engine.
+Assigning the lookup to an intermediate column produced one lookup node on
+both versions, but still decoded the whole record.
+
+Both versions passed the existing single-worker, in-memory fusion gates on
+fixtures and repeated City inputs. Partial/scalar median ratios ranged from
+1.03 to 1.08, below the 1.30 limit.
 
 ## Reproducible fixture baseline
 
