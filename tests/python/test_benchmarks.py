@@ -33,6 +33,7 @@ def test_workload_cardinality_excludes_null_ip_values() -> None:
     }
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="RSS benchmarks require resource")
 @pytest.mark.parametrize("script", ["lookups.py", "real_city.py"])
 @pytest.mark.parametrize("engine", ["in-memory", "streaming"])
 @pytest.mark.parametrize("operation", [None, "city_fields"])
