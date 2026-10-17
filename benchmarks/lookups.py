@@ -9,6 +9,7 @@ import platform
 import statistics
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
@@ -30,42 +31,49 @@ def _fixture_frame(ip: str, adjacent: str, rows: int) -> pl.LazyFrame:
     return pl.DataFrame({"ip": (ips * ((rows + 3) // 4))[:rows]}).lazy()
 
 
-def _operations(
+def _operation_builders(
     database_dir: Path, rows: int, city_frame: pl.LazyFrame
-) -> dict[str, pl.LazyFrame]:
+) -> dict[str, Callable[[], pl.LazyFrame]]:
+    """Defer database access until a benchmark operation is selected."""
     city = database_dir / "GeoIP2-City-Test.mmdb"
     partial: dict[str, Any] = {
         "country": {"iso_code": pl.String},
         "location": {"latitude": pl.Float64, "longitude": pl.Float64},
     }
-    record = mmp.lookup("ip", city)
+
+    def city_fields() -> pl.LazyFrame:
+        record = mmp.lookup("ip", city)
+        return city_frame.select(
+            country=record.struct.field("country").struct.field("iso_code"),
+            latitude=record.struct.field("location").struct.field("latitude"),
+            longitude=record.struct.field("location").struct.field("longitude"),
+        )
+
     return {
-        "scalar": city_frame.select(
+        "scalar": lambda: city_frame.select(
             mmp.lookup_path("ip", city, ["country", "iso_code"]).alias("country")
         ),
-        "three_paths": city_frame.select(
+        "three_paths": lambda: city_frame.select(
             mmp.lookup_path("ip", city, ["country", "iso_code"]).alias("country"),
             mmp.lookup_path("ip", city, ["location", "latitude"]).alias("latitude"),
             mmp.lookup_path("ip", city, ["location", "longitude"]).alias("longitude"),
         ),
-        "partial": city_frame.select(
+        "partial": lambda: city_frame.select(
             mmp.lookup("ip", city, dtype=partial).alias("record")
         ),
-        "city": city_frame.select(record.alias("record")),
-        "city_fields": city_frame.select(
-            country=record.struct.field("country").struct.field("iso_code"),
-            latitude=record.struct.field("location").struct.field("latitude"),
-            longitude=record.struct.field("location").struct.field("longitude"),
-        ),
-        "country": city_frame.select(
+        "city": lambda: city_frame.select(mmp.lookup("ip", city).alias("record")),
+        "city_fields": city_fields,
+        "country": lambda: city_frame.select(
             mmp.lookup("ip", database_dir / "GeoIP2-Country-Test.mmdb").alias("record")
         ),
-        "enterprise": _fixture_frame("::2.125.160.216", "::2.125.160.217", rows).select(
+        "enterprise": lambda: _fixture_frame(
+            "::2.125.160.216", "::2.125.160.217", rows
+        ).select(
             mmp.lookup("ip", database_dir / "GeoIP2-Enterprise-Test.mmdb").alias(
                 "record"
             )
         ),
-        "asn": _fixture_frame("1.0.0.0", "1.0.0.1", rows).select(
+        "asn": lambda: _fixture_frame("1.0.0.0", "1.0.0.1", rows).select(
             mmp.lookup("ip", database_dir / "GeoLite2-ASN-Test.mmdb").alias("record")
         ),
     }
@@ -119,13 +127,15 @@ def main() -> None:
         parser.error("--rows and --repeats must be positive")
 
     city_frame = _fixture_frame("89.160.20.128", "89.160.20.129", args.rows)
-    plans = _operations(args.database_dir, args.rows, city_frame)
+    builders = _operation_builders(args.database_dir, args.rows, city_frame)
     if args.operation is not None:
-        if args.operation not in plans:
+        if args.operation not in builders:
             parser.error(
-                f"unknown operation: {args.operation}; choose from {', '.join(plans)}"
+                f"unknown operation: {args.operation}; "
+                f"choose from {', '.join(builders)}"
             )
-        plans = {args.operation: plans[args.operation]}
+        builders = {args.operation: builders[args.operation]}
+    plans = {name: build() for name, build in builders.items()}
     operations = {
         name: _benchmark(plan, args.repeats, args.engine)
         for name, plan in plans.items()
