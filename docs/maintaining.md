@@ -1,28 +1,25 @@
 # Maintainer operations
 
-This guide covers repository settings and publishing responsibilities that are
-not fully expressed in source files. Recheck external settings before a public
-release and after ownership or publishing changes.
+Recheck repository and publisher settings before a release and after ownership
+or publishing changes.
 
 ## Sources of truth
 
-- [PyPI](https://pypi.org/project/maxminddb-polars/) lists published Python
-  packages, requirements, and distributions.
+- [PyPI](https://pypi.org/project/maxminddb-polars/) lists published packages.
 - [`pyproject.toml`](../pyproject.toml) and [`Cargo.toml`](../Cargo.toml) declare
-  package metadata and dependencies; `Cargo.lock`, `fuzz/Cargo.lock`, and
-  `uv.lock` pin the resolved development dependencies.
+  versions and dependencies. `Cargo.lock`, `fuzz/Cargo.lock`, and `uv.lock` pin
+  development dependencies.
 - [`rust-toolchain.toml`](../rust-toolchain.toml) selects the repository Rust
   toolchain.
 - The [compatibility](../.github/workflows/compatibility.yml) and
   [artifact](../.github/workflows/artifacts.yml) workflows define the tested
-  Python/Polars combinations and distribution platforms.
-- The `tests/data` submodule pins the MaxMind-DB fixtures. `scripts/check` and
-  the metadata CI job verify that revision.
+  Python/Polars versions and platforms.
+- `tests/data` pins the fixtures. `scripts/check` and metadata CI verify the revision.
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases) describes the release helper.
 
 ## GitHub settings
 
-The following repository settings were verified on 2026-09-12:
+Settings verified on 2026-09-12:
 
 - The repository is public, `main` is the default branch, and Issues are enabled.
 - Dependency graph, Dependabot security updates, private vulnerability
@@ -34,7 +31,7 @@ The following repository settings were verified on 2026-09-12:
   bypass for its required reviews and checks.
 - The `Protect release tags` ruleset blocks force updates and deletion of `v*`
   tags, with no bypass actors.
-- Merge, squash, and rebase merges are allowed; merged branches are deleted.
+- Merge, squash, and rebase merges are allowed. Merged branches are deleted.
 
 The required status checks on `main` are:
 
@@ -45,25 +42,23 @@ The required status checks on `main` are:
 - `Rust unit tests`
 - `Python 3.10 on ubuntu-latest`
 
-These are literal check names in branch protection. If the CI job names or
-Python matrix change, update branch protection to match.
-`Validate distributions` is intentionally not required because the artifact
-workflow is path-filtered; making it required would block pull requests for
-which it does not run.
+Keep branch protection's check names in sync with CI. Do not require
+`Validate distributions`: its workflow skips some pull requests based on changed
+paths, which would leave those requests blocked.
 
-Code scanning, dependency review, auditing, and artifact retention are
-configured in [the workflows](../.github/workflows). Check the relevant runs
-for the release candidate instead of relying on an earlier successful run.
+Before releasing, check the candidate's workflow results. The
+[workflows](../.github/workflows) define code scanning, dependency review,
+audits, and artifact retention.
 
 ## Publishing
 
-A published GitHub release starts [`release.yml`](../.github/workflows/release.yml).
-It checks the tag against the Cargo version, builds and validates distributions,
-publishes to crates.io and PyPI, and verifies the published packages. A manual
-workflow dispatch validates artifacts without publishing.
+Publishing a GitHub release starts [`release.yml`](../.github/workflows/release.yml).
+It checks the tag against the Cargo version, builds and validates packages,
+publishes them to crates.io and PyPI, and verifies the uploads. A manual run
+validates without publishing.
 
-Both registry projects are established. Their trusted publishers use this
-repository's owner and name, the `release.yml` workflow, and these environments:
+Both registries use trusted publishing with this repository's owner and name,
+the `release.yml` workflow, and these environments:
 
 | Registry  | GitHub environment |
 | --------- | ------------------ |
@@ -71,17 +66,17 @@ repository's owner and name, the `release.yml` workflow, and these environments:
 | PyPI      | `pypi`             |
 
 Both environments accept only `v*` tags and have no stored secrets, as verified
-on 2026-09-12. Registry uploads use short-lived OIDC credentials. Repository
-transfers, workflow renames, or environment renames require corresponding
-trusted-publisher changes at both registries.
+on 2026-09-12. Uploads use short-lived OpenID Connect (OIDC) credentials. Update
+both registries' publisher settings after a repository transfer or a workflow
+or environment rename.
 
-Maintainers must keep account two-factor authentication and recovery access
-available; those account settings cannot be verified through the repository API.
+Keep two-factor authentication and account recovery available. The repository
+API cannot verify these account settings.
 
 ## Temporary security exceptions
 
-The authoritative advisory ignore list and re-evaluation deadline live in
-[`.cargo/audit.toml`](../.cargo/audit.toml). The current rationale is:
+The ignored advisories and review deadline are in
+[`.cargo/audit.toml`](../.cargo/audit.toml):
 
 - [`bincode` is unmaintained](https://rustsec.org/advisories/RUSTSEC-2025-0141.html)
   and is required transitively by Polars.
@@ -96,6 +91,5 @@ The authoritative advisory ignore list and re-evaluation deadline live in
   cargo tree --locked --manifest-path fuzz/Cargo.toml --target all -i quick-xml
   ```
 
-Re-evaluate exceptions when the Polars dependency stack changes and before the
-deadline in the audit configuration. Historical resolved advisories belong in
-the release record, not the active exception list.
+Review exceptions when Polars dependencies change and before the audit deadline.
+Remove resolved advisories from the active exception list.

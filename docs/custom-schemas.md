@@ -1,9 +1,8 @@
 # Custom and partial schemas
 
-`lookup` infers the complete dtype for the 14 standard MaxMind database
-families. Pass `dtype` to select a smaller known record or to describe an
-otherwise unknown MMDB database. The dtype must be a `pl.Struct` or a nested
-mapping whose leaves are supported Polars dtypes.
+Pass `dtype` to `lookup` to read selected fields or describe a custom database.
+Use a `pl.Struct` or a nested mapping of Polars dtypes. For example, to read a
+country code and coordinates:
 
 ```python
 import polars as pl
@@ -23,22 +22,17 @@ result = frame.with_columns(
 )
 ```
 
-For a known database, every requested field and leaf dtype is validated during
-Polars schema planning. Unknown databases are validated while values decode.
-Mappings preserve insertion order. An equivalent `pl.Struct` produces the same
-output dtype and values.
+For a standard database, the library checks fields and dtypes during schema
+planning. For a custom database, it checks them while decoding records.
+Mappings preserve field order and give the same results as an equivalent
+`pl.Struct`.
 
-Supported leaves are Boolean, signed and unsigned integers through 128 bits,
-Float32, Float64, String, and Binary. `pl.List` and nested `pl.Struct` can occur
-at any depth. Missing scalar fields are null, missing declared Lists are empty,
-and missing declared Structs apply these defaults recursively to their fields.
-A lookup miss, null input, or invalid IP with `strict=False` makes the outer
-record null.
+See the [API reference](api.md#dtypes-and-validity) for supported dtypes and
+missing-value behavior.
 
-For one field, prefer `lookup_path`. Its explicit dtype must exactly match the
-inferred dtype for a known path; partial known Structs use `lookup` instead.
-A partial Struct is the fused API for several related fields: it performs one
-search-tree lookup per valid non-null IP, decodes selected leaves once per
-unique record offset, and assembles their arrays into the declared nested
-Struct. Decoder resource limits apply to custom and partial records too;
-exceeding them raises a Polars `ComputeError` even with `strict=False`.
+Use `lookup_path` for one field. Use `lookup` with a partial dtype for several
+fields so they share one database search per valid IP. Selecting fields after
+a full `lookup` still decodes the whole record.
+
+Decoder resource limits also apply to custom and partial records. Exceeding
+them raises a Polars `ComputeError`, even with `strict=False`.
