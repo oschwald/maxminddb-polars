@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import statistics
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import polars as pl
 from _common import (
@@ -29,50 +31,67 @@ def _fixture_frame(ip: str, adjacent: str, rows: int) -> pl.LazyFrame:
     return pl.DataFrame({"ip": (ips * ((rows + 3) // 4))[:rows]}).lazy()
 
 
-def _operations(
+def _operation_builders(
     database_dir: Path, rows: int, city_frame: pl.LazyFrame
-) -> dict[str, pl.LazyFrame]:
+) -> dict[str, Callable[[], pl.LazyFrame]]:
+    """Defer database access until a benchmark operation is selected."""
     city = database_dir / "GeoIP2-City-Test.mmdb"
     partial: dict[str, Any] = {
         "country": {"iso_code": pl.String},
         "location": {"latitude": pl.Float64, "longitude": pl.Float64},
     }
+
+    def city_fields() -> pl.LazyFrame:
+        record = mmp.lookup("ip", city)
+        return city_frame.select(
+            country=record.struct.field("country").struct.field("iso_code"),
+            latitude=record.struct.field("location").struct.field("latitude"),
+            longitude=record.struct.field("location").struct.field("longitude"),
+        )
+
     return {
-        "scalar": city_frame.select(
+        "scalar": lambda: city_frame.select(
             mmp.lookup_path("ip", city, ["country", "iso_code"]).alias("country")
         ),
-        "three_paths": city_frame.select(
+        "three_paths": lambda: city_frame.select(
             mmp.lookup_path("ip", city, ["country", "iso_code"]).alias("country"),
             mmp.lookup_path("ip", city, ["location", "latitude"]).alias("latitude"),
             mmp.lookup_path("ip", city, ["location", "longitude"]).alias("longitude"),
         ),
-        "partial": city_frame.select(
+        "partial": lambda: city_frame.select(
             mmp.lookup("ip", city, dtype=partial).alias("record")
         ),
-        "city": city_frame.select(mmp.lookup("ip", city).alias("record")),
-        "country": city_frame.select(
+        "city": lambda: city_frame.select(mmp.lookup("ip", city).alias("record")),
+        "city_fields": city_fields,
+        "country": lambda: city_frame.select(
             mmp.lookup("ip", database_dir / "GeoIP2-Country-Test.mmdb").alias("record")
         ),
-        "enterprise": _fixture_frame("::2.125.160.216", "::2.125.160.217", rows).select(
+        "enterprise": lambda: _fixture_frame(
+            "::2.125.160.216", "::2.125.160.217", rows
+        ).select(
             mmp.lookup("ip", database_dir / "GeoIP2-Enterprise-Test.mmdb").alias(
                 "record"
             )
         ),
-        "asn": _fixture_frame("1.0.0.0", "1.0.0.1", rows).select(
+        "asn": lambda: _fixture_frame("1.0.0.0", "1.0.0.1", rows).select(
             mmp.lookup("ip", database_dir / "GeoLite2-ASN-Test.mmdb").alias("record")
         ),
     }
 
 
-def _benchmark(plan: pl.LazyFrame, repeats: int) -> dict[str, Any]:
-    plan.collect()
+def _benchmark(
+    plan: pl.LazyFrame,
+    repeats: int,
+    engine: Literal["auto", "in-memory", "streaming"],
+) -> dict[str, Any]:
+    plan.collect(engine=engine)
     wall_samples: list[float] = []
     cpu_samples: list[float] = []
     result = pl.DataFrame()
     for _ in range(repeats):
         wall_started = time.perf_counter()
         cpu_started = time.process_time()
-        result = plan.collect()
+        result = plan.collect(engine=engine)
         cpu_samples.append(time.process_time() - cpu_started)
         wall_samples.append(time.perf_counter() - wall_started)
     median = statistics.median(wall_samples)
@@ -95,26 +114,46 @@ def main() -> None:
         type=Path,
         default=Path(__file__).parents[1] / "tests" / "data" / "test-data",
     )
+    parser.add_argument(
+        "--engine", choices=["auto", "in-memory", "streaming"], default="auto"
+    )
+    parser.add_argument("--operation", help="Measure one operation in a fresh process")
     parser.add_argument("--json", type=Path)
     parser.add_argument("--enforce-gates", action="store_true")
     args = parser.parse_args()
+    if args.operation is not None and args.enforce_gates:
+        parser.error("--enforce-gates requires all operations")
     if args.rows <= 0 or args.repeats <= 0:
         parser.error("--rows and --repeats must be positive")
 
     city_frame = _fixture_frame("89.160.20.128", "89.160.20.129", args.rows)
+    builders = _operation_builders(args.database_dir, args.rows, city_frame)
+    if args.operation is not None:
+        if args.operation not in builders:
+            parser.error(
+                f"unknown operation: {args.operation}; "
+                f"choose from {', '.join(builders)}"
+            )
+        builders = {args.operation: builders[args.operation]}
+    plans = {name: build() for name, build in builders.items()}
     operations = {
-        name: _benchmark(plan, args.repeats)
-        for name, plan in _operations(args.database_dir, args.rows, city_frame).items()
+        name: _benchmark(plan, args.repeats, args.engine)
+        for name, plan in plans.items()
     }
-    partial_ratio = (
-        operations["partial"]["median_seconds"] / operations["scalar"]["median_seconds"]
-    )
-    gates = {
-        "partial_to_scalar_median_ratio": partial_ratio,
-        "partial_within_30_percent_of_scalar": partial_ratio <= 1.3,
-    }
+    gates = {}
+    if args.operation is None:
+        partial_ratio = (
+            operations["partial"]["median_seconds"]
+            / operations["scalar"]["median_seconds"]
+        )
+        gates = {
+            "partial_to_scalar_median_ratio": partial_ratio,
+            "partial_within_30_percent_of_scalar": partial_ratio <= 1.3,
+        }
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
+        "engine": args.engine,
+        "engine_affinity": os.environ.get("POLARS_ENGINE_AFFINITY"),
         "workload": "repeated",
         **workload_cardinality(city_frame),
         "environment": {

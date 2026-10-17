@@ -211,9 +211,9 @@ def test_newer_known_schema_validates_partial_dtypes() -> None:
         invalid.collect_schema()
 
 
-@pytest.mark.parametrize("engine", ["auto", "streaming"])
+@pytest.mark.parametrize("engine", ["auto", "in-memory", "streaming"])
 def test_whole_city_is_identical_eager_lazy_and_streaming(
-    engine: Literal["auto", "streaming"],
+    engine: Literal["auto", "in-memory", "streaming"],
 ) -> None:
     frame = pl.DataFrame({"ip": ["89.160.20.128", None, "203.0.113.1"]})
     expression = mmp.lookup("ip", DATABASES / "GeoIP2-City-Test.mmdb").alias("record")
@@ -245,6 +245,29 @@ def test_repeated_whole_city_uses_arrow_gathers() -> None:
     assert result["record"].struct.field("country").struct.field("iso_code").head(
         4
     ).to_list() == ["SE", "SE", None, None]
+
+
+@pytest.mark.parametrize("engine", ["auto", "in-memory", "streaming"])
+def test_several_fields_from_the_same_lookup(
+    engine: Literal["auto", "in-memory", "streaming"],
+) -> None:
+    frame = pl.DataFrame({"ip": ["89.160.20.128", None, "203.0.113.1"]})
+    record = mmp.lookup("ip", DATABASES / "GeoIP2-City-Test.mmdb")
+    result = (
+        frame.lazy()
+        .select(
+            country=record.struct.field("country").struct.field("iso_code"),
+            latitude=record.struct.field("location").struct.field("latitude"),
+            longitude=record.struct.field("location").struct.field("longitude"),
+        )
+        .collect(engine=engine)
+    )
+
+    assert result.to_dict(as_series=False) == {
+        "country": ["SE", None, None],
+        "latitude": [58.4167, None, None],
+        "longitude": [15.6167, None, None],
+    }
 
 
 def test_whole_record_namespace_matches_standalone() -> None:
@@ -285,32 +308,38 @@ def test_reader_cache_is_safe_across_concurrent_evaluations() -> None:
     assert all(output[:4] == ["SE", None, "SE", None] for output in outputs)
 
 
+@pytest.mark.parametrize("engine", ["auto", "in-memory", "streaming"])
 def test_planned_expression_keeps_its_snapshot_after_atomic_replacement(
     tmp_path: Path,
+    engine: Literal["auto", "in-memory", "streaming"],
 ) -> None:
     database = tmp_path / "database.mmdb"
     shutil.copy2(DATABASES / "GeoIP2-City-Test.mmdb", database)
-    old_query = (
-        pl.DataFrame({"ip": ["89.160.20.128"]})
-        .lazy()
-        .select(mmp.lookup("ip", database).alias("record"))
-    )
+    frame = pl.DataFrame({"ip": ["89.160.20.128"]}).lazy()
+    old_expression = mmp.lookup("ip", database)
+    old_query = frame.select(old_expression.alias("record"))
     assert old_query.collect_schema() == {"record": mmp.schemas.CITY}
 
     replacement = tmp_path / "replacement.mmdb"
     shutil.copy2(DATABASES / "GeoIP2-Country-Test.mmdb", replacement)
     os.replace(replacement, database)
 
-    old_result = old_query.collect()
+    old_result = old_query.collect(engine=engine)
     assert old_result.schema == {"record": mmp.schemas.CITY}
     assert old_result["record"].struct.field("city").is_not_null().item()
 
-    new_query = (
-        pl.DataFrame({"ip": ["89.160.20.128"]})
-        .lazy()
-        .select(mmp.lookup("ip", database).alias("record"))
-    )
+    new_expression = mmp.lookup("ip", database)
+    new_query = frame.select(new_expression.alias("record"))
     assert new_query.collect_schema() == {"record": mmp.schemas.COUNTRY}
+    combined = frame.select(old=old_expression, new=new_expression).collect(
+        engine=engine
+    )
+    assert combined.schema == {"old": mmp.schemas.CITY, "new": mmp.schemas.COUNTRY}
+    assert combined["old"].to_list() == old_result["record"].to_list()
+    assert (
+        combined["new"].to_list()
+        == new_query.collect(engine=engine)["record"].to_list()
+    )
 
 
 def test_same_size_and_mtime_replacement_is_a_new_generation(

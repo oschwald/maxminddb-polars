@@ -1,35 +1,28 @@
 # Comparison with existing Polars integrations
 
-This is the comparison recorded on 2026-08-25 against these pinned releases of
-two overlapping projects:
+On 2026-08-25, we compared `maxminddb-polars` with:
 
 - [`polars-maxminddb` 0.2.3](https://pypi.org/project/polars-maxminddb/),
-  which exposes separate fixed City, Country, and ASN scalar functions;
+  which has separate City, Country, and ASN scalar functions.
 - [`polars-iptools` 0.2.2](https://pypi.org/project/polars-iptools/), whose
   broader IP toolkit includes a fixed GeoIP `full` Struct.
 
-`maxminddb-polars` accepts the database path on each expression and
-supports inferred whole records for 14 database families, arbitrary custom
-Struct schemas, validated partial schemas, and scalar/nested paths. The
-competitors use empty strings and numeric defaults for some missing fields;
-this package represents missing scalar fields as null according to its
-[documented validity semantics](api.md#dtypes-and-validity).
+`maxminddb-polars` accepts a database path per expression and supports full
+records, selected fields, and custom schemas. It returns null for missing scalar
+fields. The other packages use empty strings or numeric defaults for some fields,
+so results differ when data is missing. See [Missing values](api.md#dtypes-and-validity).
 
-These results describe the recorded `0.1.3` development revisions and dependency
-versions. They do not establish performance for other versions of these
-packages.
+These measurements describe the pinned versions, not current package performance.
 
 ## Reproducible result
 
-The benchmark used the `maxminddb-polars` 0.1.3 release candidate (whose
-package metadata was still 0.1.2 when measured), Python 3.13.12, Polars 1.43.2,
-one Polars thread, a 33.7 MB GeoLite2 City database, 50,000 rows, and the median
-of five warm runs. Each JSON report records its exact clean source revision.
-The three-field cases select English country name, English city name, and
-longitude. Throughput is millions of rows per second; external results are
-informational, not release gates. One thread keeps the implementation
-comparison CPU-normalized; multi-thread scalar results are recorded in
-[`performance.md`](performance.md).
+The benchmark used the 0.1.3 release candidate, with package metadata still at
+0.1.2, Python 3.13.12, and Polars 1.43.2. It measured 50,000 rows against a
+33.7 MB GeoLite2 City database, using one worker and the median of five warm runs.
+Each report records the exact source revision.
+
+The three-field cases read English country name, English city name, and longitude.
+Throughput is in millions of rows per second. These comparisons do not gate releases.
 
 | Operation                              | 50k distinct | 4 repeated IPs |
 | -------------------------------------- | -----------: | -------------: |
@@ -40,22 +33,20 @@ comparison CPU-normalized; multi-thread scalar results are recorded in
 | three `polars-maxminddb` calls         |         0.19 |           0.22 |
 | one materialized `polars-iptools.full` |         1.21 |           1.50 |
 
-All country outputs were identical. Three-field values were identical on all
-fully populated rows (26,998 distinct-IP rows and 25,000 repeated-IP rows).
-Missing values are intentionally not declared identical because of the null
-versus empty/default semantic difference.
+Country outputs matched. Three-field values matched on fully populated rows:
+26,998 distinct-IP rows and 25,000 repeated-IP rows. Missing values differ as
+described above.
 
-Peak process RSS was 192 MiB for the distinct workload and 158 MiB for the
-repeated workload. Content-free source results are committed as
+Peak resident memory was 192 MiB for distinct IPs and 158 MiB for repeated IPs.
+Reports contain metrics, not database contents:
 [`comparison-high-cardinality.json`](../benchmarks/results/comparison-high-cardinality.json)
 and
 [`comparison-repeated.json`](../benchmarks/results/comparison-repeated.json).
 
 ## Reproduction
 
-To compare the current checkout with the pinned competitors, install them into
-one isolated environment. To reproduce a historical report, first check out
-its `git_revision` and initialize that revision's submodules. Arrange
+Install all three packages in one isolated environment. To reproduce a historical
+report, first check out its `git_revision` and initialize its submodules. Put
 `GeoLite2-City.mmdb` and `GeoLite2-ASN.mmdb` in the directory required by
 `polars-iptools`, and run:
 
@@ -86,6 +77,5 @@ POLARS_MAX_THREADS=1 uv run --no-sync python benchmarks/compare.py \
   --json comparison-repeated.json
 ```
 
-The script validates populated overlapping outputs before timing and refuses
-more than 250,000 rows. Both pinned competitors provide compatible abi3
-manylinux x86-64 wheels for the tested environment.
+The script checks matching, populated fields before timing and refuses runs over
+250,000 rows. Both pinned packages have compatible manylinux x86-64 wheels.

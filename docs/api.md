@@ -16,11 +16,10 @@ def lookup(
 ) -> pl.Expr: ...
 ```
 
-`expr` must resolve to a Polars String column. `database` is a filesystem path
-to a caller-supplied MMDB file. Standard databases infer their complete Struct
-dtype from metadata. An unknown database requires a `pl.Struct` or nested
-mapping in `dtype`; the same argument selects a validated partial Struct from a
-known database.
+`expr` must resolve to a Polars String column. Set `database` to the path of
+your MMDB file. For standard databases, `lookup` infers the full Struct dtype
+from metadata. Pass `dtype` to read selected fields. Custom databases require
+`dtype`. See [Custom and partial schemas](custom-schemas.md).
 
 The equivalent namespace method is
 `pl.col("ip").mmdb.lookup(database, dtype=dtype, strict=strict)`.
@@ -38,16 +37,15 @@ def lookup_path(
 ) -> pl.Expr: ...
 ```
 
-Pass `path` as a non-empty list or tuple of string map keys and integer List
-indexes, for example `("country", "iso_code")`. Strings are not interpreted as
-dot-separated paths because MMDB map keys can contain dots. Negative indexes
-count from the end. Known schemas infer
-scalar, Struct, or List results and reject unknown fields or incompatible path
-components during planning, even with `strict=False`.
+Pass `path` as a non-empty list or tuple, such as `("country", "iso_code")`.
+Use strings for map keys and integers for List indexes. Negative indexes count
+from the end. Dot-separated strings are not supported because MMDB keys can
+contain dots.
 
-For a known schema, an explicit dtype must exactly match the inferred path
-dtype, including all fields of a nested Struct. Use `lookup(..., dtype=...)`
-to select a partial known Struct. An unknown schema requires an explicit dtype.
+For standard databases, `lookup_path` infers the result dtype and rejects
+invalid paths during planning, even with `strict=False`. If you pass `dtype`,
+it must match exactly, including every field of a nested Struct. To select part
+of a Struct, use `lookup(..., dtype=...)`. Custom databases require `dtype`.
 
 The equivalent namespace method is
 `pl.col("ip").mmdb.lookup_path(database, path, dtype=dtype, strict=strict)`.
@@ -71,11 +69,8 @@ The equivalent namespace method is
 | Domain            | `GeoIP2-Domain`                                                                                                      |
 | ASN               | `GeoIP2-ASN`, `GeoLite2-ASN`                                                                                         |
 
-Exact stable dtypes are available as uppercase values in
-`maxminddb_polars.schemas`, including `RESIDENTIAL_PROXY`, `ANONYMOUS_PLUS`,
-`IP_RISK`, `STATIC_IP_SCORE`, and `USER_COUNT`. Other metadata names are
-intentionally treated as custom databases, even if their names resemble a
-standard product.
+Stable dtypes are available as uppercase constants in `maxminddb_polars.schemas`.
+Any `database_type` not listed above is treated as a custom database.
 
 Output field names are serialized MMDB keys: for example `names.en`,
 `names.pt-BR`, and `represented_country.type`.
@@ -103,46 +98,36 @@ Unsupported logical types fail during expression construction.
 | Decoder or metadata resource limit exceeded          | Polars compute error               |
 
 `strict=False` only converts invalid IP strings to nulls. Database, decode,
-resource-limit, and schema errors still raise. The `maxminddb` decoder bounds
-container values and aggregate string/byte payloads; a structurally valid
-record or metadata section can exceed those bounds. See
-[`security-testing.md`](security-testing.md) for the regression coverage.
+resource-limit, and schema errors still raise. Decoder limits also apply to
+structurally valid records and metadata. See [Security testing](security-testing.md).
 
 For `lookup`, a null outer Struct indicates a lookup miss, null input, or an
 invalid IP with `strict=False`. A Struct-valued `lookup_path` also returns null
 when the selected path is absent from a record.
 
-Missing declared Structs apply field defaults recursively: scalar fields are
-null, Struct fields are present, and List fields are empty. These defaults do
-not prove whether the source map was physically absent.
+Missing Structs apply the table's defaults to their fields recursively.
+The output does not distinguish a missing map from one containing those defaults.
 
 ## Database updates
 
-An expression captures the canonical path, byte size, nanosecond modification
-time, filesystem metadata-change or creation time, and the file identity on
-Unix and Windows. Schema planning and execution share a strong in-memory byte
-snapshot for that generation.
-Atomically replace an MMDB file and construct a new expression to use the
-replacement. In-place changes detected during open fail rather than silently
-mixing generations.
+Replace the MMDB file atomically and create a new expression to use the update.
+Schema planning and execution share a cached snapshot of the database bytes.
+If an in-place change is detected while opening the file, the lookup fails.
 
-Unix change time and file identity distinguish same-size replacements and
-in-place rewrites whose modification time is restored. The Windows volume and
-file identity distinguish atomic replacements, but a same-size in-place rewrite
-with a restored modification time might not be detected. Prefer atomic
-replacement on all platforms.
+The process-wide cache retains up to 512 MiB by default, evicting the oldest
+snapshots first. Set `MAXMINDDB_POLARS_CACHE_MAX_BYTES` before the first lookup
+to change the limit. It accepts a non-negative byte count. The cache always
+retains the newest snapshot, even if that snapshot exceeds the limit.
 
-The process-wide snapshot cache retains up to 512 MiB in insertion order by
-default. Set `MAXMINDDB_POLARS_CACHE_MAX_BYTES` before the first lookup to choose
-a different non-negative byte limit. The newest snapshot is retained even when
-it alone exceeds the limit. An already planned expression uses its old snapshot
-while it remains cached; after eviction it either reopens unchanged bytes or
-returns an error asking the caller to reconstruct the expression.
+An existing expression uses its old snapshot while it remains cached. After
+eviction, it reopens the unchanged file or raises an error asking you to recreate
+the expression. Running evaluations keep their snapshots until they finish.
+Those snapshots and output arrays can use memory beyond the cache limit.
 
-Eviction removes the cache's reference to a snapshot; an evaluation already
-using it retains its own reference until it completes. The byte limit applies
-to cached database snapshots, with the newest-snapshot exception above. Active
-evaluations and output arrays can use additional memory.
+Snapshots are identified by the canonical path, size, nanosecond modification
+time, metadata-change or creation time, and file identity. Unix detects
+same-size rewrites even when modification time is restored. Windows detects
+atomic replacements, but might miss such an in-place rewrite. Use atomic
+replacement on both platforms.
 
-The package never downloads a database. Users are responsible for obtaining,
-updating, and licensing their MMDB files.
+You are responsible for obtaining, updating, and licensing your database.

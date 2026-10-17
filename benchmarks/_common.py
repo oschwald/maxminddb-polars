@@ -67,7 +67,8 @@ def mapped_ip_frame(database: Path, rows: int) -> pl.LazyFrame:
     )
     if found.height != rows:
         raise RuntimeError(f"only found {found.height:,} mapped candidate addresses")
-    return found.lazy()
+    # Keep input chunking consistent across Polars engine defaults.
+    return found.rechunk().lazy()
 
 
 def workload_cardinality(frame: pl.LazyFrame) -> dict[str, int]:

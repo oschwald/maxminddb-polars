@@ -1,7 +1,9 @@
 import importlib
 import importlib.metadata
+from typing import Literal
 
 import polars as pl
+import pytest
 
 import maxminddb_polars as mmp
 from maxminddb_polars._internal import identity
@@ -25,12 +27,14 @@ def test_native_expression_runs_eagerly() -> None:
     assert result.to_dict(as_series=False) == {"value": ["one", None, "two"]}
 
 
-def test_native_expression_runs_lazily() -> None:
+@pytest.mark.parametrize("engine", ["auto", "in-memory", "streaming"])
+def test_native_expression_runs_lazily(
+    engine: Literal["auto", "in-memory", "streaming"],
+) -> None:
     frame = pl.DataFrame({"value": ["one", None, "two"]}).lazy()
 
     result = frame.select(identity("value"))
 
-    assert result.collect().to_dict(as_series=False) == {"value": ["one", None, "two"]}
-    assert result.collect(engine="streaming").to_dict(as_series=False) == {
+    assert result.collect(engine=engine).to_dict(as_series=False) == {
         "value": ["one", None, "two"]
     }
