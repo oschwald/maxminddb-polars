@@ -6,7 +6,18 @@ Polars requirements live in [`pyproject.toml`](../pyproject.toml), and the
 exact tested combinations live in the
 [compatibility matrix](../.github/workflows/compatibility.yml).
 
-The Python Polars range is intentionally narrow because a native expression
+The supported Python Polars versions are 1.43.2, 1.44, and 2.0. The minimum
+Python version remains 3.10. Polars 2.0 uses the same native plugin build as
+the supported 1.x versions.
+
+Polars 2.0 defaults lazy queries to the streaming engine. The tests cover
+`auto`, `in-memory`, and `streaming` explicitly. To retain the previous engine
+for a query, use `collect(engine="in-memory")`. See the
+[Polars 2.0 migration guide](https://docs.pola.rs/releases/upgrade/2/) for
+changes to operations outside this library, including row order in joins and
+grouping.
+
+The Python Polars range is bounded because a native expression
 plugin must match Polars' plugin ABI. A new Polars minor is supported only after
 source and built-wheel tests pass and the declared dependency interval changes.
 
@@ -58,7 +69,9 @@ considerations, and the complete development checks.
   together; update the matrix when changing the declared Python interval.
 - Linux, macOS, and Windows source builds run in CI. Every advertised wheel
   target is built by the reusable artifact workflow. It installs and
-  smoke-tests manylinux x86-64, both macOS architectures, and Windows x86-64.
+  smoke-tests the same wheel against each pinned Polars version on manylinux
+  x86-64, both macOS architectures, and Windows x86-64. The smoke test covers
+  whole records, partial schemas, and scalar paths in all three engine modes.
   The AArch64 Linux and musllinux wheels are built and inspected without runtime
   smoke tests.
 - `Cargo.lock`, `uv.lock`, the release Rust toolchain, and the MaxMind-DB test

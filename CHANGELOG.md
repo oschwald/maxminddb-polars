@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added Python Polars 2.0 support while retaining the 1.43.2 minimum and the
+  existing native dependencies. Compatibility tests cover explicit in-memory
+  and streaming execution, shared lookup expressions, and database snapshots.
+- Added benchmark engine selection, isolated operation runs, and shared
+  whole-record field selections for Polars version comparisons.
+
 ## [0.2.0] - 2026-09-12
 
 ### Changed

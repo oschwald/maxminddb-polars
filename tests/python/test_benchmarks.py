@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from runpy import run_path
@@ -29,6 +31,61 @@ def test_workload_cardinality_excludes_null_ip_values() -> None:
         "unique_ips": 3,
         "null_rows": 1,
     }
+
+
+@pytest.mark.parametrize("script", ["lookups.py", "real_city.py"])
+@pytest.mark.parametrize("engine", ["in-memory", "streaming"])
+@pytest.mark.parametrize("operation", [None, "city_fields"])
+def test_benchmark_engine_and_operation_reports(
+    script: str,
+    engine: str,
+    operation: str | None,
+) -> None:
+    command = [sys.executable, str(REPOSITORY_ROOT / "benchmarks" / script)]
+    if script == "real_city.py":
+        command.append(
+            str(REPOSITORY_ROOT / "tests/data/test-data/GeoIP2-City-Test.mmdb")
+        )
+    command.extend(["--rows", "8", "--repeats", "1", "--engine", engine])
+    if operation is not None:
+        command.extend(["--operation", operation])
+    report = json.loads(subprocess.check_output(command, text=True))
+
+    assert report["engine"] == engine
+    assert "engine_affinity" in report
+    assert report["operations"]["city_fields"]["rows"] == 8
+    assert report["operations"]["city_fields"]["output_bytes"] > 0
+    if operation is not None:
+        assert list(report["operations"]) == [operation]
+        assert report["gates"] == {}
+    else:
+        assert "partial_within_30_percent_of_scalar" in report["gates"]
+
+
+@pytest.mark.parametrize("script", ["lookups.py", "real_city.py"])
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--operation", "unknown"],
+        ["--operation", "scalar", "--enforce-gates"],
+    ],
+)
+def test_benchmark_rejects_invalid_operation_arguments(
+    script: str,
+    arguments: list[str],
+) -> None:
+    command = [sys.executable, str(REPOSITORY_ROOT / "benchmarks" / script)]
+    if script == "real_city.py":
+        command.append(
+            str(REPOSITORY_ROOT / "tests/data/test-data/GeoIP2-City-Test.mmdb")
+        )
+    result = subprocess.run(
+        [*command, "--rows", "8", "--repeats", "1", *arguments],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "error:" in result.stderr
 
 
 @pytest.mark.parametrize("result_path", RESULTS, ids=lambda path: path.stem)

@@ -17,9 +17,9 @@ CITY_DB = DATA / "GeoIP2-City-Test.mmdb"
 CUSTOM_DB = DATA / "MaxMind-DB-test-decoder.mmdb"
 
 
-@pytest.mark.parametrize("engine", ["auto", "streaming"])
+@pytest.mark.parametrize("engine", ["auto", "in-memory", "streaming"])
 def test_known_path_eager_lazy_and_streaming(
-    engine: Literal["auto", "streaming"],
+    engine: Literal["auto", "in-memory", "streaming"],
 ) -> None:
     expression = mmp.lookup_path("ip", CITY_DB, ("country", "iso_code")).alias(
         "country"

@@ -40,9 +40,9 @@ CUSTOM_STRUCT = pl.Struct(
 )
 
 
-@pytest.mark.parametrize("engine", ["auto", "streaming"])
+@pytest.mark.parametrize("engine", ["auto", "in-memory", "streaming"])
 def test_arbitrary_nested_custom_record(
-    engine: Literal["auto", "streaming"],
+    engine: Literal["auto", "in-memory", "streaming"],
 ) -> None:
     frame = pl.DataFrame({"ip": ["::1.1.1.0", None, "2001:db8::1"]}).lazy()
 

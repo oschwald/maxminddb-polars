@@ -5,10 +5,11 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import os
 import statistics
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import polars as pl
 from _common import (
@@ -23,9 +24,13 @@ from _common import (
 import maxminddb_polars as mmp
 
 
-def _measure(plan: pl.LazyFrame, repeats: int) -> dict[str, Any]:
-    warm = plan.collect()
-    if warm.to_series().null_count() == warm.height:
+def _measure(
+    plan: pl.LazyFrame,
+    repeats: int,
+    engine: Literal["auto", "in-memory", "streaming"],
+) -> dict[str, Any]:
+    warm = plan.collect(engine=engine)
+    if all(column.null_count() == warm.height for column in warm):
         raise ValueError("sample IPs produced no records in the supplied City database")
     row_count = warm.height
     output_bytes = warm.estimated_size()
@@ -34,7 +39,7 @@ def _measure(plan: pl.LazyFrame, repeats: int) -> dict[str, Any]:
     samples = []
     for _ in range(repeats):
         started = time.perf_counter()
-        result = plan.collect()
+        result = plan.collect(engine=engine)
         samples.append(time.perf_counter() - started)
         output_bytes = result.estimated_size()
         del result
@@ -77,9 +82,15 @@ def main() -> None:
         "--workload", choices=["repeated", "half", "high"], default="repeated"
     )
     parser.add_argument("--allow-large-run", action="store_true")
+    parser.add_argument(
+        "--engine", choices=["auto", "in-memory", "streaming"], default="auto"
+    )
+    parser.add_argument("--operation", help="Measure one operation in a fresh process")
     parser.add_argument("--json", type=Path)
     parser.add_argument("--enforce-gates", action="store_true")
     args = parser.parse_args()
+    if args.operation is not None and args.enforce_gates:
+        parser.error("--enforce-gates requires all operations")
     if args.rows <= 0 or args.repeats <= 0:
         parser.error("--rows and --repeats must be positive")
     if args.rows > 250_000 and not args.allow_large_run:
@@ -95,26 +106,49 @@ def main() -> None:
         "country": {"iso_code": pl.String},
         "location": {"latitude": pl.Float64, "longitude": pl.Float64},
     }
+    record = mmp.lookup("ip", database)
     operations = {
         "scalar": frame.select(
             mmp.lookup_path("ip", database, ["country", "iso_code"])
         ),
         "partial": frame.select(mmp.lookup("ip", database, dtype=partial)),
-        "whole_city": frame.select(mmp.lookup("ip", database)),
+        "whole_city": frame.select(record),
+        "three_paths": frame.select(
+            country=mmp.lookup_path("ip", database, ["country", "iso_code"]),
+            latitude=mmp.lookup_path("ip", database, ["location", "latitude"]),
+            longitude=mmp.lookup_path("ip", database, ["location", "longitude"]),
+        ),
+        "city_fields": frame.select(
+            country=record.struct.field("country").struct.field("iso_code"),
+            latitude=record.struct.field("location").struct.field("latitude"),
+            longitude=record.struct.field("location").struct.field("longitude"),
+        ),
     }
+    if args.operation is not None:
+        if args.operation not in operations:
+            parser.error(
+                f"unknown operation: {args.operation}; "
+                f"choose from {', '.join(operations)}"
+            )
+        operations = {args.operation: operations[args.operation]}
     measurements = {
-        name: _measure(plan, args.repeats) for name, plan in operations.items()
+        name: _measure(plan, args.repeats, args.engine)
+        for name, plan in operations.items()
     }
-    partial_ratio = (
-        measurements["partial"]["median_seconds"]
-        / measurements["scalar"]["median_seconds"]
-    )
-    gates = {
-        "partial_to_scalar_median_ratio": partial_ratio,
-        "partial_within_30_percent_of_scalar": partial_ratio <= 1.3,
-    }
+    gates = {}
+    if args.operation is None:
+        partial_ratio = (
+            measurements["partial"]["median_seconds"]
+            / measurements["scalar"]["median_seconds"]
+        )
+        gates = {
+            "partial_to_scalar_median_ratio": partial_ratio,
+            "partial_within_30_percent_of_scalar": partial_ratio <= 1.3,
+        }
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
+        "engine": args.engine,
+        "engine_affinity": os.environ.get("POLARS_ENGINE_AFFINITY"),
         "database_bytes": database.stat().st_size,
         "polars": pl.__version__,
         "polars_max_threads": pl.thread_pool_size(),

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import statistics
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import polars as pl
 from _common import (
@@ -37,6 +38,7 @@ def _operations(
         "country": {"iso_code": pl.String},
         "location": {"latitude": pl.Float64, "longitude": pl.Float64},
     }
+    record = mmp.lookup("ip", city)
     return {
         "scalar": city_frame.select(
             mmp.lookup_path("ip", city, ["country", "iso_code"]).alias("country")
@@ -49,7 +51,12 @@ def _operations(
         "partial": city_frame.select(
             mmp.lookup("ip", city, dtype=partial).alias("record")
         ),
-        "city": city_frame.select(mmp.lookup("ip", city).alias("record")),
+        "city": city_frame.select(record.alias("record")),
+        "city_fields": city_frame.select(
+            country=record.struct.field("country").struct.field("iso_code"),
+            latitude=record.struct.field("location").struct.field("latitude"),
+            longitude=record.struct.field("location").struct.field("longitude"),
+        ),
         "country": city_frame.select(
             mmp.lookup("ip", database_dir / "GeoIP2-Country-Test.mmdb").alias("record")
         ),
@@ -64,15 +71,19 @@ def _operations(
     }
 
 
-def _benchmark(plan: pl.LazyFrame, repeats: int) -> dict[str, Any]:
-    plan.collect()
+def _benchmark(
+    plan: pl.LazyFrame,
+    repeats: int,
+    engine: Literal["auto", "in-memory", "streaming"],
+) -> dict[str, Any]:
+    plan.collect(engine=engine)
     wall_samples: list[float] = []
     cpu_samples: list[float] = []
     result = pl.DataFrame()
     for _ in range(repeats):
         wall_started = time.perf_counter()
         cpu_started = time.process_time()
-        result = plan.collect()
+        result = plan.collect(engine=engine)
         cpu_samples.append(time.process_time() - cpu_started)
         wall_samples.append(time.perf_counter() - wall_started)
     median = statistics.median(wall_samples)
@@ -95,26 +106,44 @@ def main() -> None:
         type=Path,
         default=Path(__file__).parents[1] / "tests" / "data" / "test-data",
     )
+    parser.add_argument(
+        "--engine", choices=["auto", "in-memory", "streaming"], default="auto"
+    )
+    parser.add_argument("--operation", help="Measure one operation in a fresh process")
     parser.add_argument("--json", type=Path)
     parser.add_argument("--enforce-gates", action="store_true")
     args = parser.parse_args()
+    if args.operation is not None and args.enforce_gates:
+        parser.error("--enforce-gates requires all operations")
     if args.rows <= 0 or args.repeats <= 0:
         parser.error("--rows and --repeats must be positive")
 
     city_frame = _fixture_frame("89.160.20.128", "89.160.20.129", args.rows)
+    plans = _operations(args.database_dir, args.rows, city_frame)
+    if args.operation is not None:
+        if args.operation not in plans:
+            parser.error(
+                f"unknown operation: {args.operation}; choose from {', '.join(plans)}"
+            )
+        plans = {args.operation: plans[args.operation]}
     operations = {
-        name: _benchmark(plan, args.repeats)
-        for name, plan in _operations(args.database_dir, args.rows, city_frame).items()
+        name: _benchmark(plan, args.repeats, args.engine)
+        for name, plan in plans.items()
     }
-    partial_ratio = (
-        operations["partial"]["median_seconds"] / operations["scalar"]["median_seconds"]
-    )
-    gates = {
-        "partial_to_scalar_median_ratio": partial_ratio,
-        "partial_within_30_percent_of_scalar": partial_ratio <= 1.3,
-    }
+    gates = {}
+    if args.operation is None:
+        partial_ratio = (
+            operations["partial"]["median_seconds"]
+            / operations["scalar"]["median_seconds"]
+        )
+        gates = {
+            "partial_to_scalar_median_ratio": partial_ratio,
+            "partial_within_30_percent_of_scalar": partial_ratio <= 1.3,
+        }
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
+        "engine": args.engine,
+        "engine_affinity": os.environ.get("POLARS_ENGINE_AFFINITY"),
         "workload": "repeated",
         **workload_cardinality(city_frame),
         "environment": {

@@ -6,8 +6,17 @@ performs one search-tree lookup per valid IP and gathers each selected leaf by
 unique record offset. Use `lookup` without a dtype when most or all of a record
 is needed. Selecting Struct fields after a whole-record lookup still decodes
 and materializes the full record; select paths or pass a partial dtype to avoid
-that work. If several consumers need fields from a whole record, materialize
-the expression once before selecting its Struct fields.
+that work. Polars 2.0 can share repeated deterministic lookup expressions.
+For example, several field selections from the same `lookup` can use one
+whole-record lookup. This reuse does not push field selections into the
+decoder. On Polars 1.44, materialize the expression once before selecting its
+Struct fields to avoid repeated lookups.
+
+Polars 2.0 defaults lazy queries to streaming. Whole-record and partial-record
+lookups can run in streaming batches. Scalar-path lookups retain their existing
+registration, which keeps the input Series together for internal parallelism.
+Their streaming plans contain an in-memory fallback. Do not assume that
+streaming bounds the memory used by a path lookup or by the complete pipeline.
 
 The implementation has no per-row Python calls and uses no JSON intermediate.
 Scalar paths use concrete typed builders; string and binary values borrow from
@@ -39,12 +48,14 @@ uv run --no-sync maturin develop --release --locked
 POLARS_MAX_THREADS=1 uv run --no-sync python benchmarks/lookups.py \
   --rows 10000 \
   --repeats 7 \
+  --engine in-memory \
   --enforce-gates \
   --json benchmark-results.json
 ```
 
 The script measures a scalar path, three independent paths, a fused
-three-field projection, complete City/Country/Enterprise/ASN records, CPU and
+three-field projection, shared City field selections, complete
+City/Country/Enterprise/ASN records, CPU and
 wall samples, output size, and peak process RSS. It records OS, Python, Polars,
 Rust, package, and fixture revisions, whether tracked source files were dirty,
 and a report schema version. `git_dirty` is `true` or `false` when Git status is
@@ -56,7 +67,21 @@ gate fails. The committed development result is
 [`benchmarks/results/development-fixtures.json`](../benchmarks/results/development-fixtures.json).
 The release-mode, single-thread fixture gate also runs weekly and can be
 started manually through the `Benchmark` GitHub Actions workflow, which defaults
-to 100,000 rows and seven repeats.
+to 100,000 rows and seven repeats. The gate uses the in-memory engine to keep
+the execution mode comparable across Polars versions.
+
+Both lookup benchmark scripts accept `--engine auto|in-memory|streaming` and
+record the requested engine and `POLARS_ENGINE_AFFINITY`. `auto` follows the
+installed Polars version and any engine affinity setting. Use an explicit
+engine when comparing the same execution mode across versions.
+
+Use `--operation scalar`, `--operation three_paths`, `--operation partial`, or
+`--operation city_fields` to measure one operation per process. Full City
+records use `--operation city` in `lookups.py` and `--operation whole_city` in
+`real_city.py`. Separate processes prevent a previous operation from setting
+the peak RSS for the next operation. Peak RSS still includes interpreter,
+database, workload construction, and warm-up memory. Single-operation runs
+cannot use `--enforce-gates`, which compares scalar and partial lookups.
 
 The committed results were measured during `0.1.3` development, with package
 metadata still at `0.1.2`. Each report records its dependencies and source
@@ -82,6 +107,7 @@ POLARS_MAX_THREADS=1 uv run --no-sync python benchmarks/real_city.py \
   --rows 50000 \
   --repeats 7 \
   --workload repeated \
+  --engine in-memory \
   --enforce-gates \
   --json real-city-results.json
 ```
