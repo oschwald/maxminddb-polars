@@ -9,11 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added Python Polars 2.0 support while retaining the 1.43.2 minimum and the
-  existing native dependencies. Compatibility tests cover explicit in-memory
+- Added Python Polars 2.0 support while retaining the 1.43.2 minimum.
+  Compatibility tests cover explicit in-memory
   and streaming execution, shared lookup expressions, and database snapshots.
 - Added benchmark engine selection, isolated operation runs, and shared
   whole-record field selections for Polars version comparisons.
+
+### Changed
+
+- Updated PyO3 to 0.29.3, Rust to 1.99.1, Python development tools, Prettier,
+  CI actions, transitive dependencies, and the MaxMind-DB test fixtures.
 
 ## [0.2.0] - 2026-09-12
 
