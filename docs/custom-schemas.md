@@ -27,6 +27,12 @@ planning. For a custom database, it checks them while decoding records.
 Mappings preserve field order and give the same results as an equivalent
 `pl.Struct`.
 
+Custom unsigned integer dtypes accept any encoded unsigned width when the value
+fits the requested dtype exactly. This applies to scalar paths, List elements,
+and whole-record projections. Out-of-range values raise `ComputeError`, including
+with `strict=False`; they are never truncated. This does not enable conversions
+from signed integers, floats, strings, or booleans.
+
 See the [API reference](api.md#dtypes-and-validity) for supported dtypes and
 missing-value behavior.
 

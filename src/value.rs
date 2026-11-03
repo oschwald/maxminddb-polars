@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::fmt;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use maxminddb::{LookupResult, MaxMindDbError, PathElement};
@@ -65,6 +66,51 @@ pub fn decode_projected_path<'a>(
     result
         .decode_path::<ProjectedValue<'a>>(path)
         .map(|value| value.map(|value| value.0))
+}
+
+/// An MMDB unsigned integer of any encoded width that fits `T`.
+///
+/// Writers can choose the width for each value, so one field can mix widths.
+#[derive(Clone, Copy)]
+pub struct Unsigned<T>(pub T);
+
+impl<'de, T: TryFrom<u128>> Deserialize<'de> for Unsigned<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(UnsignedVisitor(PhantomData))
+    }
+}
+
+struct UnsignedVisitor<T>(PhantomData<T>);
+
+impl<T: TryFrom<u128>> Visitor<'_> for UnsignedVisitor<T> {
+    type Value = Unsigned<T>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an unsigned MMDB integer")
+    }
+
+    // serde forwards visit_u8, visit_u16, and visit_u32 to visit_u64.
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_u128(value.into())
+    }
+
+    fn visit_u128<E>(self, value: u128) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        T::try_from(value).map(Unsigned).map_err(|_| {
+            E::custom(format_args!(
+                "MMDB value {value} does not fit in requested dtype {}",
+                std::any::type_name::<T>()
+            ))
+        })
+    }
 }
 
 struct ProjectedValue<'a>(Value<'a>);
