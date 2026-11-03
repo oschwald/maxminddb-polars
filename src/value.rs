@@ -1,13 +1,16 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::fmt;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use maxminddb::{LookupResult, MaxMindDbError, PathElement};
 use polars::chunked_array::builder::{AnonymousOwnedListBuilder, ListBuilderTrait};
 use polars::prelude::*;
 use polars_arrow::bitmap::Bitmap;
-use serde::de::{DeserializeSeed, Error as _, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::de::{
+    DeserializeSeed, Error as _, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor,
+};
 use serde::{Deserialize, Deserializer};
 
 use crate::schema::{SchemaField, SchemaSpec};
@@ -65,6 +68,93 @@ pub fn decode_projected_path<'a>(
     result
         .decode_path::<ProjectedValue<'a>>(path)
         .map(|value| value.map(|value| value.0))
+}
+
+/// An integer type that an unsigned Polars dtype stores.
+pub trait UnsignedDtype: TryFrom<u128> + TryFrom<i128> {
+    const SCHEMA: SchemaSpec;
+}
+
+macro_rules! unsigned_dtype {
+    ($ty:ty, $schema:ident) => {
+        impl UnsignedDtype for $ty {
+            const SCHEMA: SchemaSpec = SchemaSpec::$schema;
+        }
+    };
+}
+
+unsigned_dtype!(u8, UInt8);
+unsigned_dtype!(u16, UInt16);
+unsigned_dtype!(u32, UInt32);
+unsigned_dtype!(u64, UInt64);
+unsigned_dtype!(u128, UInt128);
+
+/// An MMDB integer of any encoded type and width that fits `T`.
+///
+/// Writers can choose the type for each value, so one field can mix uint16,
+/// uint32, and int32.
+#[derive(Clone, Copy)]
+pub struct Unsigned<T>(pub T);
+
+impl<'de, T: UnsignedDtype> Deserialize<'de> for Unsigned<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(UnsignedVisitor(PhantomData))
+    }
+}
+
+struct UnsignedVisitor<T>(PhantomData<T>);
+
+impl<T: UnsignedDtype> Visitor<'_> for UnsignedVisitor<T> {
+    type Value = Unsigned<T>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an MMDB integer")
+    }
+
+    // serde forwards visit_u8, visit_u16, and visit_u32 to visit_u64.
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_u128(value.into())
+    }
+
+    fn visit_u128<E>(self, value: u128) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        T::try_from(value)
+            .map(Unsigned)
+            .map_err(|_| out_of_range::<T, E>(value))
+    }
+
+    // serde forwards visit_i8, visit_i16, and visit_i32 to visit_i64.
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_i128(value.into())
+    }
+
+    fn visit_i128<E>(self, value: i128) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        T::try_from(value)
+            .map(Unsigned)
+            .map_err(|_| out_of_range::<T, E>(value))
+    }
+
+    // The default error copies the stored string, which can be any length.
+    fn visit_str<E>(self, _value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Err(E::invalid_type(Unexpected::Other("string"), &self))
+    }
 }
 
 struct ProjectedValue<'a>(Value<'a>);
@@ -649,6 +739,13 @@ fn list_series(
         }
     }
     Ok(builder.finish().into_series())
+}
+
+fn out_of_range<T: UnsignedDtype, E: serde::de::Error>(value: impl fmt::Display) -> E {
+    E::custom(format_args!(
+        "MMDB value {value} does not fit in requested dtype {}",
+        T::SCHEMA.to_polars()
+    ))
 }
 
 #[cfg(test)]
