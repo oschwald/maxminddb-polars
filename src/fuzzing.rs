@@ -1,11 +1,13 @@
 //! Entry points used only by the out-of-tree `cargo-fuzz` harnesses.
 
+use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use maxminddb::Reader;
-use serde::Deserialize;
+use serde::de::{MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer};
 
 use crate::guard::catch_mmdb_unwind;
 use crate::lookup::{LookupPathKwargs, LookupRecordKwargs};
@@ -97,6 +99,9 @@ pub fn malformed_database(data: &[u8]) {
         .into_iter()
         .filter_map(|ip| reader.lookup(ip).ok())
         .collect();
+        for result in &results {
+            let _ = result.decode::<Walk>();
+        }
         for schema in MALFORMED_DATABASE_SCHEMAS.iter() {
             with_projected_schema(schema, || {
                 for result in &results {
@@ -143,6 +148,96 @@ fn decoder_test_schema() -> SchemaSpec {
     ])
 }
 
+/// Visits every value without keeping it.
+///
+/// The projected decoder skips keys outside its schema, so this reaches
+/// containers under any key.
+struct Walk;
+
+impl<'de> Deserialize<'de> for Walk {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(WalkVisitor)
+    }
+}
+
+struct WalkVisitor;
+
+// serde forwards the narrower integer and float visits, and the borrowed
+// string and bytes visits, to the methods below.
+impl<'de> Visitor<'de> for WalkVisitor {
+    type Value = Walk;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("any MMDB value")
+    }
+
+    fn visit_bool<E>(self, _value: bool) -> Result<Walk, E> {
+        Ok(Walk)
+    }
+
+    fn visit_i64<E>(self, _value: i64) -> Result<Walk, E> {
+        Ok(Walk)
+    }
+
+    fn visit_i128<E>(self, _value: i128) -> Result<Walk, E> {
+        Ok(Walk)
+    }
+
+    fn visit_u64<E>(self, _value: u64) -> Result<Walk, E> {
+        Ok(Walk)
+    }
+
+    fn visit_u128<E>(self, _value: u128) -> Result<Walk, E> {
+        Ok(Walk)
+    }
+
+    fn visit_f64<E>(self, _value: f64) -> Result<Walk, E> {
+        Ok(Walk)
+    }
+
+    fn visit_str<E>(self, _value: &str) -> Result<Walk, E> {
+        Ok(Walk)
+    }
+
+    fn visit_bytes<E>(self, _value: &[u8]) -> Result<Walk, E> {
+        Ok(Walk)
+    }
+
+    fn visit_unit<E>(self) -> Result<Walk, E> {
+        Ok(Walk)
+    }
+
+    fn visit_none<E>(self) -> Result<Walk, E> {
+        Ok(Walk)
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Walk, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Walk::deserialize(deserializer)
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Walk, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        while sequence.next_element::<Walk>()?.is_some() {}
+        Ok(Walk)
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Walk, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        while map.next_entry::<Walk, Walk>()?.is_some() {}
+        Ok(Walk)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,6 +251,20 @@ mod tests {
             let result = reader.lookup(ip.parse::<IpAddr>().unwrap()).unwrap();
             let value = with_projected_schema(&schema, || decode_projected_path(&result, &[]));
             assert!(value.unwrap().is_some(), "{ip}");
+        }
+    }
+
+    #[test]
+    fn walk_visits_every_valid_fixture_value() {
+        for path in [
+            "tests/data/test-data/MaxMind-DB-test-decoder.mmdb",
+            "tests/data/test-data/GeoIP2-City-Test.mmdb",
+        ] {
+            let reader = Reader::open_readfile(path).unwrap();
+            for network in reader.networks(Default::default()).unwrap() {
+                let result = network.unwrap();
+                assert!(result.decode::<Walk>().unwrap().is_some(), "{path}");
+            }
         }
     }
 }
