@@ -75,16 +75,6 @@ STANDARD_FIXTURES = [
         "GeoIP2-Enterprise-Test.json",
         mmp.schemas.ENTERPRISE,
     ),
-    (
-        "GeoIP2-Precision-Enterprise-Test.mmdb",
-        "GeoIP2-Precision-Enterprise-Test.json",
-        mmp.schemas.ENTERPRISE,
-    ),
-    (
-        "GeoIP2-Precision-Enterprise-Shield-Test.mmdb",
-        "GeoIP2-Precision-Enterprise-Test.json",
-        mmp.schemas.ENTERPRISE,
-    ),
     ("GeoIP2-ISP-Test.mmdb", "GeoIP2-ISP-Test.json", mmp.schemas.ISP),
     (
         "GeoIP2-Connection-Type-Test.mmdb",

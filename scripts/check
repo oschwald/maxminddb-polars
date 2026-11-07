@@ -21,4 +21,4 @@ cargo metadata --manifest-path fuzz/Cargo.toml --locked --format-version 1 --no-
     >/dev/null
 uv lock --check
 test "$(git -C tests/data rev-parse HEAD)" = \
-    "0ee49278e35fd7bdf341ac236edbba20de1aceb9"
+    "d12e37856df12a62bb4647da66d20feddb8783a6"

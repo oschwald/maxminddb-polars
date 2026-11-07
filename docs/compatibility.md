@@ -6,12 +6,13 @@ Install a release from [PyPI](https://pypi.org/project/maxminddb-polars/):
 python -m pip install maxminddb-polars
 ```
 
-This checkout supports Python 3.10 or later and Polars 1.43.2, 1.44, and 2.0.
+This checkout supports Python 3.10 or later and Polars 1.43.2, 1.44, 2.0, and
+2.1. Polars 2.1 requires Python 3.11 or later. Python 3.10 installs Polars 2.0.
 See [`pyproject.toml`](../pyproject.toml) for dependency bounds and the
 [compatibility matrix](../.github/workflows/compatibility.yml) for tested versions.
 Free-threaded CPython builds are not built or tested.
 
-Polars 2.0 uses the same native plugin as the supported 1.x versions, but
+Polars 2.x uses the same native plugin as the supported 1.x versions, but
 defaults lazy queries to streaming. Use `collect(engine="in-memory")` to keep
 the previous engine. See the
 [Polars 2.0 migration guide](https://docs.pola.rs/releases/upgrade/2/) for
@@ -48,8 +49,10 @@ Prerelease testing does not imply support. Dropping a Python minor must be noted
 in the release notes.
 
 The Compatibility workflow tests every supported Python minor against the minimum
-Polars version and selected patches. It runs monthly, on dependency pull requests,
-and on demand. Run it for release candidates not covered by those checks.
+Polars version and selected patches. Polars 2.1 is excluded for Python 3.10
+because Polars 2.1 requires Python 3.11. The workflow runs monthly, on dependency
+pull requests, and on demand. Run it for release candidates not covered by those
+checks.
 
 CI builds from source on Linux, macOS, and Windows, and builds every wheel target.
 Runtime smoke tests cover whole records, partial schemas, and paths with `auto`,
