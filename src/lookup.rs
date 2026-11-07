@@ -16,7 +16,9 @@ use crate::cache::{CachedReader, DatabaseIdentity, reader_for};
 use crate::guard::catch_mmdb_unwind;
 use crate::known::decode_known;
 use crate::schema::{PathPart, SchemaSpec, resolve_path_dtype, resolve_record_dtype, to_mmdb_path};
-use crate::value::{Value, decode_projected_path, values_to_series, with_projected_schema};
+use crate::value::{
+    Unsigned, Value, decode_projected_path, values_to_series, with_projected_schema,
+};
 
 // Smaller batches do not repay Rayon scheduling and multi-chunk output costs.
 const PARALLEL_SCALAR_MIN_ROWS: usize = 8_192;
@@ -77,7 +79,10 @@ fn lookup_path_series_with_workers(
     let name = input.name().clone();
 
     macro_rules! primitive {
-        ($ty:ty, $chunked:ty) => {{
+        ($ty:ty, $chunked:ty) => {
+            primitive!($ty, $chunked, std::convert::identity)
+        };
+        ($ty:ty, $chunked:ty, $native:expr) => {{
             if ips.len() >= PARALLEL_SCALAR_MIN_ROWS && scalar_workers > 2 {
                 let chunk_name = name.clone();
                 let chunks = decode_scalar_chunks_parallel::<$ty, _, _>(
@@ -86,7 +91,10 @@ fn lookup_path_series_with_workers(
                     &path,
                     kwargs,
                     move |values| {
-                        <$chunked>::from_iter_options(chunk_name.clone(), values.into_iter())
+                        <$chunked>::from_iter_options(
+                            chunk_name.clone(),
+                            values.into_iter().map(|value| value.map($native)),
+                        )
                     },
                 )?;
                 let mut chunks = chunks.into_iter();
@@ -102,19 +110,25 @@ fn lookup_path_series_with_workers(
                     decode_scalar_values::<$ty>(ips, &reader, &path, kwargs)?;
                 let values = rows
                     .into_iter()
-                    .map(|row| row.and_then(|index| unique_values[index]));
+                    .map(|row| row.and_then(|index| unique_values[index]).map($native));
                 Ok(<$chunked>::from_iter_options(name, values).into_series())
             }
         }};
     }
 
+    macro_rules! unsigned {
+        ($ty:ty, $chunked:ty) => {
+            primitive!(Unsigned<$ty>, $chunked, |value: Unsigned<$ty>| value.0)
+        };
+    }
+
     match dtype {
         SchemaSpec::Boolean => primitive!(bool, BooleanChunked),
-        SchemaSpec::UInt8 => primitive!(u8, UInt8Chunked),
-        SchemaSpec::UInt16 => primitive!(u16, UInt16Chunked),
-        SchemaSpec::UInt32 => primitive!(u32, UInt32Chunked),
-        SchemaSpec::UInt64 => primitive!(u64, UInt64Chunked),
-        SchemaSpec::UInt128 => primitive!(u128, UInt128Chunked),
+        SchemaSpec::UInt8 => unsigned!(u8, UInt8Chunked),
+        SchemaSpec::UInt16 => unsigned!(u16, UInt16Chunked),
+        SchemaSpec::UInt32 => unsigned!(u32, UInt32Chunked),
+        SchemaSpec::UInt64 => unsigned!(u64, UInt64Chunked),
+        SchemaSpec::UInt128 => unsigned!(u128, UInt128Chunked),
         SchemaSpec::Int8 => primitive!(i8, Int8Chunked),
         SchemaSpec::Int16 => primitive!(i16, Int16Chunked),
         SchemaSpec::Int32 => primitive!(i32, Int32Chunked),
@@ -478,13 +492,21 @@ fn decode_leaf<'a>(
         };
     }
 
+    macro_rules! unsigned {
+        ($ty:ty, $variant:path) => {
+            result
+                .decode_path::<Unsigned<$ty>>(path)
+                .map(|value| value.map(|value| $variant(value.0)))
+        };
+    }
+
     match dtype {
         SchemaSpec::Boolean => scalar!(bool, Value::Boolean),
-        SchemaSpec::UInt8 => scalar!(u8, Value::UInt8),
-        SchemaSpec::UInt16 => scalar!(u16, Value::UInt16),
-        SchemaSpec::UInt32 => scalar!(u32, Value::UInt32),
-        SchemaSpec::UInt64 => scalar!(u64, Value::UInt64),
-        SchemaSpec::UInt128 => scalar!(u128, Value::UInt128),
+        SchemaSpec::UInt8 => unsigned!(u8, Value::UInt8),
+        SchemaSpec::UInt16 => unsigned!(u16, Value::UInt16),
+        SchemaSpec::UInt32 => unsigned!(u32, Value::UInt32),
+        SchemaSpec::UInt64 => unsigned!(u64, Value::UInt64),
+        SchemaSpec::UInt128 => unsigned!(u128, Value::UInt128),
         SchemaSpec::Int8 => scalar!(i8, Value::Int8),
         SchemaSpec::Int16 => scalar!(i16, Value::Int16),
         SchemaSpec::Int32 => scalar!(i32, Value::Int32),
@@ -792,6 +814,48 @@ mod tests {
         assert_eq!(parallel.n_chunks(), 4);
         assert_eq!(two_workers.n_chunks(), 1);
         assert_eq!(below_threshold.n_chunks(), 1);
+    }
+
+    #[test]
+    fn unsigned_conversion_preserves_scalar_dispatch_thresholds() {
+        let mut kwargs = LookupPathKwargs {
+            database: identity("tests/data/test-data/MaxMind-DB-test-decoder.mmdb"),
+            path: vec![PathPart::Key("array".to_owned()), PathPart::Index(0)],
+            dtype: Some(SchemaSpec::UInt16),
+            strict: false,
+        };
+        let candidates = [
+            Some("::1.1.1.0"),
+            None,
+            Some("not-an-ip"),
+            Some("2001:db8::1"),
+        ];
+        let values = (0..PARALLEL_SCALAR_MIN_ROWS + 1)
+            .map(|index| candidates[index % candidates.len()])
+            .collect::<Vec<_>>();
+        let input = series(&values);
+        let parallel =
+            lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 3).unwrap();
+        let serial =
+            lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 2).unwrap();
+        let below = lookup_path_series_with_workers(
+            &[input.slice(0, PARALLEL_SCALAR_MIN_ROWS - 1)],
+            &kwargs,
+            3,
+        )
+        .unwrap();
+        assert!(parallel.equals_missing(&serial));
+        assert_eq!(parallel.u16().unwrap().get(0), Some(1));
+        assert_eq!(parallel.n_chunks(), 5);
+        assert_eq!(serial.n_chunks(), 1);
+        assert_eq!(below.n_chunks(), 1);
+        kwargs.path = vec![PathPart::Key("uint32".to_owned())];
+        for workers in [2, 3] {
+            let error =
+                lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, workers)
+                    .unwrap_err();
+            assert!(error.to_string().contains("could not decode MMDB"));
+        }
     }
 
     #[test]

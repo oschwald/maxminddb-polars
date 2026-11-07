@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated Rust and Python dependencies, CI actions, development tools, and
   MaxMind-DB test fixtures to their latest compatible versions.
 
+### Fixed
+
+- Accept any encoded unsigned integer width that fits the requested unsigned
+  dtype in scalar paths and whole-record projections, as List elements already
+  did. A field can mix widths when the writer picks the width for each value.
+  Out-of-range values still raise an error rather than truncating, and the
+  error now names the value.
+- `dtype=pl.UInt8` no longer accepts signed int32 values in scalar paths and
+  whole-record projections.
+
 ## [0.3.0] - 2026-10-17
 
 ### Added
