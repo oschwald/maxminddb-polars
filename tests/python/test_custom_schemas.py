@@ -392,6 +392,58 @@ def test_list_element_type_error_reports_the_offset(dtype: Any, expected: str) -
             frame.select(expression)
 
 
+def duplicate_key_map(key: str, later: Any) -> bytes:
+    pairs = [encode_mmdb(key) + encode_mmdb(value) for value in [1, later]]
+    return mmdb_control(7, len(pairs)) + b"".join(pairs)
+
+
+# Later values are skipped, so ones that do not fit the dtype are not errors.
+REPEATED_LATER_VALUES = [2, "not a number", 2**40]
+
+
+@pytest.mark.parametrize("later", REPEATED_LATER_VALUES)
+def test_repeated_key_reads_the_first_value_on_every_path(
+    tmp_path: Path, later: Any
+) -> None:
+    database = tmp_path / "duplicate.mmdb"
+    repeated = duplicate_key_map("n", later)
+    write_mmdb(
+        database,
+        "Custom-Duplicate",
+        {1: {"values": [repeated], "record": repeated}},
+    )
+    frame = pl.DataFrame({"ip": ["1.0.0.1"]})
+    record = {"n": pl.UInt16}
+    for expression, expected in [
+        (
+            mmp.lookup_path(
+                "ip", database, ["values"], dtype=pl.List(pl.Struct(record))
+            ),
+            [{"n": 1}],
+        ),
+        (mmp.lookup_path("ip", database, ["record"], dtype=record), {"n": 1}),
+        (mmp.lookup_path("ip", database, ["record", "n"], dtype=pl.UInt16), 1),
+        (mmp.lookup("ip", database, dtype={"record": record}), {"record": {"n": 1}}),
+    ]:
+        assert frame.select(expression).to_series().to_list() == [expected]
+
+
+@pytest.mark.parametrize("later", REPEATED_LATER_VALUES)
+def test_known_whole_record_reads_the_first_repeated_value(
+    tmp_path: Path, later: Any
+) -> None:
+    database = tmp_path / "asn.mmdb"
+    field = "autonomous_system_number"
+    write_mmdb(database, "GeoLite2-ASN", {1: duplicate_key_map(field, later)})
+    frame = pl.DataFrame({"ip": ["1.0.0.1"]})
+    for expression in [
+        mmp.lookup("ip", database).struct.field(field),
+        mmp.lookup("ip", database, dtype={field: pl.UInt32}).struct.field(field),
+        mmp.lookup_path("ip", database, [field]),
+    ]:
+        assert frame.select(expression).item() == 1
+
+
 def test_inferred_unsigned_dtype_can_mix_encoded_widths(tmp_path: Path) -> None:
     database = tmp_path / "asn.mmdb"
     field = "autonomous_system_number"

@@ -284,7 +284,15 @@ impl<'de> Visitor<'de> for ProjectedMapVisitor<'_> {
                 .enumerate()
                 .find(|(_, field)| field.name == key)
             {
-                values[index] = Some(map.next_value_seed(SchemaSeed(&field.dtype))?);
+                // Keep the first value for a repeated key, as decode_path
+                // does, so every lookup of a valid record reads the same
+                // value. Later values are still skipped, so a malformed one
+                // fails here but not on a path lookup.
+                if values[index].is_some() {
+                    map.next_value::<IgnoredAny>()?;
+                } else {
+                    values[index] = Some(map.next_value_seed(SchemaSeed(&field.dtype))?);
+                }
             } else {
                 map.next_value::<IgnoredAny>()?;
             }

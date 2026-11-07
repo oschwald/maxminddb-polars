@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and partial dtypes accepted any type that fit. Decoding errors from these
   lookups now name the database path, for example
   `could not decode ASN record in "<path>": ...`.
+- Struct values that are decoded as a whole now keep the first value of a
+  repeated map key, as paths and partial dtypes already did. They kept the last
+  value before. This covers Structs inside Lists and Struct dtypes in
+  `lookup_path`.
 - Type errors for Boolean, Float32, String, and Binary List elements now name
   the decoder offset, as scalar paths and whole-record projections already did.
 
