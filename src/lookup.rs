@@ -17,7 +17,7 @@ use crate::guard::catch_mmdb_unwind;
 use crate::known::decode_known;
 use crate::schema::{PathPart, SchemaSpec, resolve_path_dtype, resolve_record_dtype, to_mmdb_path};
 use crate::value::{
-    Integer, Value, decode_projected_path, values_to_series, with_projected_schema,
+    Double, Integer, Value, decode_projected_path, values_to_series, with_projected_schema,
 };
 
 // Smaller batches do not repay Rayon scheduling and multi-chunk output costs.
@@ -135,7 +135,7 @@ fn lookup_path_series_with_workers(
         SchemaSpec::Int64 => integer!(i64, Int64Chunked),
         SchemaSpec::Int128 => integer!(i128, Int128Chunked),
         SchemaSpec::Float32 => primitive!(f32, Float32Chunked),
-        SchemaSpec::Float64 => primitive!(f64, Float64Chunked),
+        SchemaSpec::Float64 => primitive!(Double, Float64Chunked, |value: Double| value.0),
         SchemaSpec::String => primitive!(&str, StringChunked),
         SchemaSpec::Binary => primitive!(&[u8], BinaryChunked),
         dtype => decode_nested_path_values(ips, &reader, &path, &dtype, kwargs),
@@ -513,7 +513,9 @@ fn decode_leaf<'a>(
         SchemaSpec::Int64 => integer!(i64, Value::Int64),
         SchemaSpec::Int128 => integer!(i128, Value::Int128),
         SchemaSpec::Float32 => scalar!(f32, Value::Float32),
-        SchemaSpec::Float64 => scalar!(f64, Value::Float64),
+        SchemaSpec::Float64 => result
+            .decode_path::<Double>(path)
+            .map(|value| value.map(|value| Value::Float64(value.0))),
         SchemaSpec::String => result
             .decode_path::<&'a str>(path)
             .map(|value| value.map(|value| Value::String(Cow::Borrowed(value)))),

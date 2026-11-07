@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field can mix int32 and unsigned types when the writer picks the type for each
   value. Scalar paths and whole-record projections previously accepted only
   some of these combinations, and List elements accepted none.
+- Accept encoded float values for `dtype=pl.Float64` in scalar paths and
+  whole-record projections, as List elements already did.
 
 ## [0.3.0] - 2026-10-17
 

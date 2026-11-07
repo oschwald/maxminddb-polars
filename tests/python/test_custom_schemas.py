@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 from typing import Any, Literal
 
@@ -330,6 +331,45 @@ def test_signed_overflow_names_the_value(dtype: Any, field: str, value: int) -> 
             frame.select(expression)
 
 
+def test_float64_field_can_mix_float_and_double(tmp_path: Path) -> None:
+    database = tmp_path / "floats.mmdb"
+    write_mmdb(
+        database,
+        "Custom-Floats",
+        {
+            1: {"n": mmdb_float(0.5), "values": [mmdb_float(0.5), 1.25]},
+            2: {"n": 1.25, "values": []},
+        },
+    )
+    frame = pl.DataFrame({"ip": ["1.0.0.1", "2.0.0.1"]})
+    assert frame.select(
+        mmp.lookup_path("ip", database, ["n"], dtype=pl.Float64)
+    ).to_series().to_list() == [0.5, 1.25]
+    assert frame.select(
+        mmp.lookup("ip", database, dtype={"n": pl.Float64})
+    ).to_series().to_list() == [{"n": 0.5}, {"n": 1.25}]
+    assert frame.select(
+        mmp.lookup_path("ip", database, ["values"], dtype=pl.List(pl.Float64))
+    ).to_series().to_list() == [[0.5, 1.25], []]
+
+
+@pytest.mark.parametrize("field", ["uint16", "int32", "boolean", "utf8_string"])
+def test_float64_rejects_non_float_values(field: str) -> None:
+    frame = pl.DataFrame({"ip": ["::1.1.1.0"]})
+    for expression in [
+        mmp.lookup_path("ip", CUSTOM_DB, [field], dtype=pl.Float64),
+        mmp.lookup("ip", CUSTOM_DB, dtype={field: pl.Float64}),
+    ]:
+        with pytest.raises(pl.exceptions.ComputeError, match="MMDB float or double"):
+            frame.select(expression)
+
+
+def test_float32_rejects_double() -> None:
+    frame = pl.DataFrame({"ip": ["::1.1.1.0"]})
+    with pytest.raises(pl.exceptions.ComputeError, match="could not decode MMDB"):
+        frame.select(mmp.lookup_path("ip", CUSTOM_DB, ["double"], dtype=pl.Float32))
+
+
 def test_inferred_unsigned_dtype_can_mix_encoded_widths(tmp_path: Path) -> None:
     database = tmp_path / "asn.mmdb"
     field = "autonomous_system_number"
@@ -604,6 +644,8 @@ def encode_mmdb(value: Any) -> bytes:
     if isinstance(value, list):
         items = [encode_mmdb(item) for item in value]
         return mmdb_control(11, len(items)) + b"".join(items)
+    if isinstance(value, float):
+        return mmdb_control(3, 8) + struct.pack(">d", value)
     if isinstance(value, int) and value < 0:
         return mmdb_int32(value)
     if isinstance(value, int):
@@ -620,6 +662,10 @@ def mmdb_uint(value: int, kind: int) -> bytes:
 
 def mmdb_int32(value: int) -> bytes:
     return mmdb_control(8, 4) + value.to_bytes(4, "big", signed=True)
+
+
+def mmdb_float(value: float) -> bytes:
+    return mmdb_control(15, 4) + struct.pack(">f", value)
 
 
 def mmdb_control(kind: int, size: int) -> bytes:

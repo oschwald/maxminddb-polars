@@ -35,6 +35,9 @@ and whole-record projections. Out-of-range values, including negative values
 for unsigned dtypes, raise `ComputeError`, including with `strict=False`. They
 are never truncated. Integer dtypes reject floats, strings, and booleans.
 
+`pl.Float64` accepts encoded float and double values. `pl.Float32` accepts only
+encoded float values.
+
 See the [API reference](api.md#dtypes-and-validity) for supported dtypes and
 missing-value behavior.
 

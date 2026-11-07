@@ -9,7 +9,7 @@ use polars::chunked_array::builder::{AnonymousOwnedListBuilder, ListBuilderTrait
 use polars::prelude::*;
 use polars_arrow::bitmap::Bitmap;
 use serde::de::{
-    DeserializeSeed, Error as _, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor,
+    DeserializeSeed, Error as _, Expected, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor,
 };
 use serde::{Deserialize, Deserializer};
 
@@ -153,12 +153,49 @@ impl<T: IntegerDtype> Visitor<'_> for IntegerVisitor<T> {
             .map_err(|_| out_of_range::<T, E>(value))
     }
 
-    // The default error copies the stored string, which can be any length.
     fn visit_str<E>(self, _value: &str) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        Err(E::invalid_type(Unexpected::Other("string"), &self))
+        Err(string_type_error(&self))
+    }
+}
+
+/// An MMDB float or double, widened to `f64`.
+#[derive(Clone, Copy)]
+pub struct Double(pub f64);
+
+impl<'de> Deserialize<'de> for Double {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(DoubleVisitor)
+    }
+}
+
+struct DoubleVisitor;
+
+impl Visitor<'_> for DoubleVisitor {
+    type Value = Double;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an MMDB float or double")
+    }
+
+    // serde forwards visit_f32 to visit_f64.
+    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(Double(value))
+    }
+
+    fn visit_str<E>(self, _value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Err(string_type_error(&self))
     }
 }
 
@@ -221,6 +258,9 @@ where
         SchemaSpec::Int32 => integer!(i32, Value::Int32),
         SchemaSpec::Int64 => integer!(i64, Value::Int64),
         SchemaSpec::Int128 => integer!(i128, Value::Int128),
+        SchemaSpec::Float64 => {
+            Double::deserialize(deserializer).map(|value| Value::Float64(value.0))
+        }
         schema => {
             let value = Value::deserialize(deserializer)?;
             validate_scalar(&value, schema).map_err(D::Error::custom)?;
@@ -483,7 +523,6 @@ fn validate_scalar(value: &Value<'_>, schema: &SchemaSpec) -> PolarsResult<()> {
     let valid = match schema {
         SchemaSpec::Boolean => matches!(value, Value::Boolean(_)),
         SchemaSpec::Float32 => matches!(value, Value::Float32(_)),
-        SchemaSpec::Float64 => matches!(value, Value::Float32(_) | Value::Float64(_)),
         SchemaSpec::String => matches!(value, Value::String(_)),
         SchemaSpec::Binary => matches!(value, Value::Binary(_)),
         SchemaSpec::UInt8
@@ -496,6 +535,7 @@ fn validate_scalar(value: &Value<'_>, schema: &SchemaSpec) -> PolarsResult<()> {
         | SchemaSpec::Int32
         | SchemaSpec::Int64
         | SchemaSpec::Int128
+        | SchemaSpec::Float64
         | SchemaSpec::List { .. }
         | SchemaSpec::Struct { .. } => unreachable!(),
     };
@@ -738,6 +778,13 @@ fn out_of_range<T: IntegerDtype, E: serde::de::Error>(value: impl fmt::Display) 
         "MMDB value {value} does not fit in requested dtype {}",
         T::SCHEMA.to_polars()
     ))
+}
+
+/// Reports a string where a number was expected.
+///
+/// The default error copies the stored string, which can be any length.
+fn string_type_error<E: serde::de::Error>(expected: &dyn Expected) -> E {
+    E::invalid_type(Unexpected::Other("string"), expected)
 }
 
 #[cfg(test)]
