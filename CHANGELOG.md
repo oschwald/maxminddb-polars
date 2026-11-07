@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   some of these combinations, and List elements accepted none.
 - Accept encoded float values for `dtype=pl.Float64` in scalar paths and
   whole-record projections, as List elements already did.
+- Type errors for Boolean, Float32, String, and Binary List elements now name
+  the decoder offset, as scalar paths and whole-record projections already did.
 
 ## [0.3.0] - 2026-10-17
 

@@ -225,46 +225,38 @@ impl<'de> DeserializeSeed<'de> for SchemaSeed<'_> {
     where
         D: Deserializer<'de>,
     {
+        macro_rules! integer {
+            ($ty:ty, $variant:path) => {
+                Integer::<$ty>::deserialize(deserializer).map(|value| $variant(value.0))
+            };
+        }
+
         match self.0 {
+            SchemaSpec::Boolean => bool::deserialize(deserializer).map(Value::Boolean),
+            SchemaSpec::UInt8 => integer!(u8, Value::UInt8),
+            SchemaSpec::UInt16 => integer!(u16, Value::UInt16),
+            SchemaSpec::UInt32 => integer!(u32, Value::UInt32),
+            SchemaSpec::UInt64 => integer!(u64, Value::UInt64),
+            SchemaSpec::UInt128 => integer!(u128, Value::UInt128),
+            SchemaSpec::Int8 => integer!(i8, Value::Int8),
+            SchemaSpec::Int16 => integer!(i16, Value::Int16),
+            SchemaSpec::Int32 => integer!(i32, Value::Int32),
+            SchemaSpec::Int64 => integer!(i64, Value::Int64),
+            SchemaSpec::Int128 => integer!(i128, Value::Int128),
+            SchemaSpec::Float32 => f32::deserialize(deserializer).map(Value::Float32),
+            SchemaSpec::Float64 => {
+                Double::deserialize(deserializer).map(|value| Value::Float64(value.0))
+            }
+            SchemaSpec::String => <&'de str>::deserialize(deserializer)
+                .map(|value| Value::String(Cow::Borrowed(value))),
+            SchemaSpec::Binary => <&'de [u8]>::deserialize(deserializer)
+                .map(|value| Value::Binary(Cow::Borrowed(value))),
             SchemaSpec::Struct { fields } => {
                 deserializer.deserialize_map(ProjectedMapVisitor { fields })
             }
             SchemaSpec::List { inner } => {
                 deserializer.deserialize_seq(ProjectedListVisitor { inner })
             }
-            schema => decode_scalar(deserializer, schema),
-        }
-    }
-}
-
-fn decode_scalar<'de, D>(deserializer: D, schema: &SchemaSpec) -> Result<Value<'de>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    macro_rules! integer {
-        ($ty:ty, $variant:path) => {
-            Integer::<$ty>::deserialize(deserializer).map(|value| $variant(value.0))
-        };
-    }
-
-    match schema {
-        SchemaSpec::UInt8 => integer!(u8, Value::UInt8),
-        SchemaSpec::UInt16 => integer!(u16, Value::UInt16),
-        SchemaSpec::UInt32 => integer!(u32, Value::UInt32),
-        SchemaSpec::UInt64 => integer!(u64, Value::UInt64),
-        SchemaSpec::UInt128 => integer!(u128, Value::UInt128),
-        SchemaSpec::Int8 => integer!(i8, Value::Int8),
-        SchemaSpec::Int16 => integer!(i16, Value::Int16),
-        SchemaSpec::Int32 => integer!(i32, Value::Int32),
-        SchemaSpec::Int64 => integer!(i64, Value::Int64),
-        SchemaSpec::Int128 => integer!(i128, Value::Int128),
-        SchemaSpec::Float64 => {
-            Double::deserialize(deserializer).map(|value| Value::Float64(value.0))
-        }
-        schema => {
-            let value = Value::deserialize(deserializer)?;
-            validate_scalar(&value, schema).map_err(D::Error::custom)?;
-            Ok(value)
         }
     }
 }
@@ -516,38 +508,6 @@ pub fn default_value(schema: &SchemaSpec) -> Value<'static> {
         ),
         SchemaSpec::List { .. } => Value::List(Vec::new()),
         _ => Value::Null,
-    }
-}
-
-fn validate_scalar(value: &Value<'_>, schema: &SchemaSpec) -> PolarsResult<()> {
-    let valid = match schema {
-        SchemaSpec::Boolean => matches!(value, Value::Boolean(_)),
-        SchemaSpec::Float32 => matches!(value, Value::Float32(_)),
-        SchemaSpec::String => matches!(value, Value::String(_)),
-        SchemaSpec::Binary => matches!(value, Value::Binary(_)),
-        SchemaSpec::UInt8
-        | SchemaSpec::UInt16
-        | SchemaSpec::UInt32
-        | SchemaSpec::UInt64
-        | SchemaSpec::UInt128
-        | SchemaSpec::Int8
-        | SchemaSpec::Int16
-        | SchemaSpec::Int32
-        | SchemaSpec::Int64
-        | SchemaSpec::Int128
-        | SchemaSpec::Float64
-        | SchemaSpec::List { .. }
-        | SchemaSpec::Struct { .. } => unreachable!(),
-    };
-    if valid {
-        Ok(())
-    } else {
-        polars_bail!(
-            ComputeError:
-            "MMDB value of type {} does not match requested dtype {}",
-            value.kind(),
-            schema.to_polars()
-        )
     }
 }
 

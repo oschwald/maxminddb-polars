@@ -370,6 +370,28 @@ def test_float32_rejects_double() -> None:
         frame.select(mmp.lookup_path("ip", CUSTOM_DB, ["double"], dtype=pl.Float32))
 
 
+@pytest.mark.parametrize(
+    "dtype,expected",
+    [
+        (pl.Boolean, "bool"),
+        (pl.Float32, "float"),
+        (pl.String, "string"),
+        (pl.Binary, "bytes"),
+    ],
+)
+def test_list_element_type_error_reports_the_offset(dtype: Any, expected: str) -> None:
+    frame = pl.DataFrame({"ip": ["::1.1.1.0"]})
+    for expression in [
+        mmp.lookup_path("ip", CUSTOM_DB, ["array"], dtype=pl.List(dtype)),
+        mmp.lookup("ip", CUSTOM_DB, dtype={"array": pl.List(dtype)}),
+    ]:
+        with pytest.raises(
+            pl.exceptions.ComputeError,
+            match=rf"decoding error at offset \d+ .*expected {expected}, got type 6",
+        ):
+            frame.select(expression)
+
+
 def test_inferred_unsigned_dtype_can_mix_encoded_widths(tmp_path: Path) -> None:
     database = tmp_path / "asn.mmdb"
     field = "autonomous_system_number"
