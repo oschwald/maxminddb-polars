@@ -511,61 +511,21 @@ pub fn default_value(schema: &SchemaSpec) -> Value<'static> {
     }
 }
 
-fn unsigned(value: &Value<'_>) -> Option<u128> {
-    match value {
-        Value::UInt8(value) => Some((*value).into()),
-        Value::UInt16(value) => Some((*value).into()),
-        Value::UInt32(value) => Some((*value).into()),
-        Value::UInt64(value) => Some((*value).into()),
-        Value::UInt128(value) => Some(*value),
-        _ => None,
-    }
-}
-
-fn signed(value: &Value<'_>) -> Option<i128> {
-    match value {
-        Value::Int8(value) => Some((*value).into()),
-        Value::Int16(value) => Some((*value).into()),
-        Value::Int32(value) => Some((*value).into()),
-        Value::Int64(value) => Some((*value).into()),
-        Value::Int128(value) => Some(*value),
-        _ => None,
-    }
-}
-
 pub fn values_to_series(
     name: PlSmallStr,
     schema: &SchemaSpec,
     values: Vec<Option<Value<'_>>>,
 ) -> PolarsResult<Series> {
-    macro_rules! unsigned_series {
-        ($ty:ty, $chunked:ty) => {{
+    macro_rules! integer_series {
+        ($variant:path, $chunked:ty) => {{
             let values = values
                 .iter()
                 .map(|value| match value {
                     None | Some(Value::Null) => Ok(None),
-                    Some(value) => unsigned(value)
-                        .and_then(|value| <$ty>::try_from(value).ok())
-                        .map(Some)
-                        .ok_or_else(|| type_error(value, schema)),
+                    Some($variant(value)) => Ok(Some(*value)),
+                    Some(value) => Err(type_error(value, schema)),
                 })
-                .collect::<PolarsResult<Vec<Option<$ty>>>>()?;
-            Ok(<$chunked>::from_iter_options(name, values.into_iter()).into_series())
-        }};
-    }
-
-    macro_rules! signed_series {
-        ($ty:ty, $chunked:ty) => {{
-            let values = values
-                .iter()
-                .map(|value| match value {
-                    None | Some(Value::Null) => Ok(None),
-                    Some(value) => signed(value)
-                        .and_then(|value| <$ty>::try_from(value).ok())
-                        .map(Some)
-                        .ok_or_else(|| type_error(value, schema)),
-                })
-                .collect::<PolarsResult<Vec<Option<$ty>>>>()?;
+                .collect::<PolarsResult<Vec<_>>>()?;
             Ok(<$chunked>::from_iter_options(name, values.into_iter()).into_series())
         }};
     }
@@ -583,16 +543,16 @@ pub fn values_to_series(
             )
             .into_series())
         }
-        SchemaSpec::UInt8 => unsigned_series!(u8, UInt8Chunked),
-        SchemaSpec::UInt16 => unsigned_series!(u16, UInt16Chunked),
-        SchemaSpec::UInt32 => unsigned_series!(u32, UInt32Chunked),
-        SchemaSpec::UInt64 => unsigned_series!(u64, UInt64Chunked),
-        SchemaSpec::UInt128 => unsigned_series!(u128, UInt128Chunked),
-        SchemaSpec::Int8 => signed_series!(i8, Int8Chunked),
-        SchemaSpec::Int16 => signed_series!(i16, Int16Chunked),
-        SchemaSpec::Int32 => signed_series!(i32, Int32Chunked),
-        SchemaSpec::Int64 => signed_series!(i64, Int64Chunked),
-        SchemaSpec::Int128 => signed_series!(i128, Int128Chunked),
+        SchemaSpec::UInt8 => integer_series!(Value::UInt8, UInt8Chunked),
+        SchemaSpec::UInt16 => integer_series!(Value::UInt16, UInt16Chunked),
+        SchemaSpec::UInt32 => integer_series!(Value::UInt32, UInt32Chunked),
+        SchemaSpec::UInt64 => integer_series!(Value::UInt64, UInt64Chunked),
+        SchemaSpec::UInt128 => integer_series!(Value::UInt128, UInt128Chunked),
+        SchemaSpec::Int8 => integer_series!(Value::Int8, Int8Chunked),
+        SchemaSpec::Int16 => integer_series!(Value::Int16, Int16Chunked),
+        SchemaSpec::Int32 => integer_series!(Value::Int32, Int32Chunked),
+        SchemaSpec::Int64 => integer_series!(Value::Int64, Int64Chunked),
+        SchemaSpec::Int128 => integer_series!(Value::Int128, Int128Chunked),
         SchemaSpec::Float32 => {
             let values = values.iter().map(|value| match value {
                 None | Some(Value::Null) => Ok(None),
@@ -608,7 +568,6 @@ pub fn values_to_series(
         SchemaSpec::Float64 => {
             let values = values.iter().map(|value| match value {
                 None | Some(Value::Null) => Ok(None),
-                Some(Value::Float32(value)) => Ok(Some((*value).into())),
                 Some(Value::Float64(value)) => Ok(Some(*value)),
                 Some(value) => Err(type_error(value, schema)),
             });
@@ -647,10 +606,13 @@ pub fn values_to_series(
     }
 }
 
+// Decoders convert each value to the variant for its dtype before it gets
+// here, so a different variant is a bug in this library, not in the database.
 fn type_error(value: &Value<'_>, schema: &SchemaSpec) -> PolarsError {
     polars_err!(
         ComputeError:
-        "MMDB value of type {} does not match requested dtype {}",
+        "internal error: the decoder returned a {} value for dtype {}. \
+         Please report this bug to maxminddb-polars",
         value.kind(),
         schema.to_polars()
     )
