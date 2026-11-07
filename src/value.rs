@@ -70,45 +70,50 @@ pub fn decode_projected_path<'a>(
         .map(|value| value.map(|value| value.0))
 }
 
-/// An integer type that an unsigned Polars dtype stores.
-pub trait UnsignedDtype: TryFrom<u128> + TryFrom<i128> {
+/// An integer type that a Polars dtype stores.
+pub trait IntegerDtype: TryFrom<u128> + TryFrom<i128> {
     const SCHEMA: SchemaSpec;
 }
 
-macro_rules! unsigned_dtype {
+macro_rules! integer_dtype {
     ($ty:ty, $schema:ident) => {
-        impl UnsignedDtype for $ty {
+        impl IntegerDtype for $ty {
             const SCHEMA: SchemaSpec = SchemaSpec::$schema;
         }
     };
 }
 
-unsigned_dtype!(u8, UInt8);
-unsigned_dtype!(u16, UInt16);
-unsigned_dtype!(u32, UInt32);
-unsigned_dtype!(u64, UInt64);
-unsigned_dtype!(u128, UInt128);
+integer_dtype!(u8, UInt8);
+integer_dtype!(u16, UInt16);
+integer_dtype!(u32, UInt32);
+integer_dtype!(u64, UInt64);
+integer_dtype!(u128, UInt128);
+integer_dtype!(i8, Int8);
+integer_dtype!(i16, Int16);
+integer_dtype!(i32, Int32);
+integer_dtype!(i64, Int64);
+integer_dtype!(i128, Int128);
 
 /// An MMDB integer of any encoded type and width that fits `T`.
 ///
 /// Writers can choose the type for each value, so one field can mix uint16,
 /// uint32, and int32.
 #[derive(Clone, Copy)]
-pub struct Unsigned<T>(pub T);
+pub struct Integer<T>(pub T);
 
-impl<'de, T: UnsignedDtype> Deserialize<'de> for Unsigned<T> {
+impl<'de, T: IntegerDtype> Deserialize<'de> for Integer<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_any(UnsignedVisitor(PhantomData))
+        deserializer.deserialize_any(IntegerVisitor(PhantomData))
     }
 }
 
-struct UnsignedVisitor<T>(PhantomData<T>);
+struct IntegerVisitor<T>(PhantomData<T>);
 
-impl<T: UnsignedDtype> Visitor<'_> for UnsignedVisitor<T> {
-    type Value = Unsigned<T>;
+impl<T: IntegerDtype> Visitor<'_> for IntegerVisitor<T> {
+    type Value = Integer<T>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("an MMDB integer")
@@ -127,7 +132,7 @@ impl<T: UnsignedDtype> Visitor<'_> for UnsignedVisitor<T> {
         E: serde::de::Error,
     {
         T::try_from(value)
-            .map(Unsigned)
+            .map(Integer)
             .map_err(|_| out_of_range::<T, E>(value))
     }
 
@@ -144,7 +149,7 @@ impl<T: UnsignedDtype> Visitor<'_> for UnsignedVisitor<T> {
         E: serde::de::Error,
     {
         T::try_from(value)
-            .map(Unsigned)
+            .map(Integer)
             .map_err(|_| out_of_range::<T, E>(value))
     }
 
@@ -199,18 +204,23 @@ fn decode_scalar<'de, D>(deserializer: D, schema: &SchemaSpec) -> Result<Value<'
 where
     D: Deserializer<'de>,
 {
-    macro_rules! unsigned {
+    macro_rules! integer {
         ($ty:ty, $variant:path) => {
-            Unsigned::<$ty>::deserialize(deserializer).map(|value| $variant(value.0))
+            Integer::<$ty>::deserialize(deserializer).map(|value| $variant(value.0))
         };
     }
 
     match schema {
-        SchemaSpec::UInt8 => unsigned!(u8, Value::UInt8),
-        SchemaSpec::UInt16 => unsigned!(u16, Value::UInt16),
-        SchemaSpec::UInt32 => unsigned!(u32, Value::UInt32),
-        SchemaSpec::UInt64 => unsigned!(u64, Value::UInt64),
-        SchemaSpec::UInt128 => unsigned!(u128, Value::UInt128),
+        SchemaSpec::UInt8 => integer!(u8, Value::UInt8),
+        SchemaSpec::UInt16 => integer!(u16, Value::UInt16),
+        SchemaSpec::UInt32 => integer!(u32, Value::UInt32),
+        SchemaSpec::UInt64 => integer!(u64, Value::UInt64),
+        SchemaSpec::UInt128 => integer!(u128, Value::UInt128),
+        SchemaSpec::Int8 => integer!(i8, Value::Int8),
+        SchemaSpec::Int16 => integer!(i16, Value::Int16),
+        SchemaSpec::Int32 => integer!(i32, Value::Int32),
+        SchemaSpec::Int64 => integer!(i64, Value::Int64),
+        SchemaSpec::Int128 => integer!(i128, Value::Int128),
         schema => {
             let value = Value::deserialize(deserializer)?;
             validate_scalar(&value, schema).map_err(D::Error::custom)?;
@@ -472,11 +482,6 @@ pub fn default_value(schema: &SchemaSpec) -> Value<'static> {
 fn validate_scalar(value: &Value<'_>, schema: &SchemaSpec) -> PolarsResult<()> {
     let valid = match schema {
         SchemaSpec::Boolean => matches!(value, Value::Boolean(_)),
-        SchemaSpec::Int8 => signed(value).is_some_and(|value| i8::try_from(value).is_ok()),
-        SchemaSpec::Int16 => signed(value).is_some_and(|value| i16::try_from(value).is_ok()),
-        SchemaSpec::Int32 => signed(value).is_some_and(|value| i32::try_from(value).is_ok()),
-        SchemaSpec::Int64 => signed(value).is_some_and(|value| i64::try_from(value).is_ok()),
-        SchemaSpec::Int128 => signed(value).is_some(),
         SchemaSpec::Float32 => matches!(value, Value::Float32(_)),
         SchemaSpec::Float64 => matches!(value, Value::Float32(_) | Value::Float64(_)),
         SchemaSpec::String => matches!(value, Value::String(_)),
@@ -486,6 +491,11 @@ fn validate_scalar(value: &Value<'_>, schema: &SchemaSpec) -> PolarsResult<()> {
         | SchemaSpec::UInt32
         | SchemaSpec::UInt64
         | SchemaSpec::UInt128
+        | SchemaSpec::Int8
+        | SchemaSpec::Int16
+        | SchemaSpec::Int32
+        | SchemaSpec::Int64
+        | SchemaSpec::Int128
         | SchemaSpec::List { .. }
         | SchemaSpec::Struct { .. } => unreachable!(),
     };
@@ -723,7 +733,7 @@ fn list_series(
     Ok(builder.finish().into_series())
 }
 
-fn out_of_range<T: UnsignedDtype, E: serde::de::Error>(value: impl fmt::Display) -> E {
+fn out_of_range<T: IntegerDtype, E: serde::de::Error>(value: impl fmt::Display) -> E {
     E::custom(format_args!(
         "MMDB value {value} does not fit in requested dtype {}",
         T::SCHEMA.to_polars()

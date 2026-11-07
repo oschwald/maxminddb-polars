@@ -17,7 +17,7 @@ use crate::guard::catch_mmdb_unwind;
 use crate::known::decode_known;
 use crate::schema::{PathPart, SchemaSpec, resolve_path_dtype, resolve_record_dtype, to_mmdb_path};
 use crate::value::{
-    Unsigned, Value, decode_projected_path, values_to_series, with_projected_schema,
+    Integer, Value, decode_projected_path, values_to_series, with_projected_schema,
 };
 
 // Smaller batches do not repay Rayon scheduling and multi-chunk output costs.
@@ -116,24 +116,24 @@ fn lookup_path_series_with_workers(
         }};
     }
 
-    macro_rules! unsigned {
+    macro_rules! integer {
         ($ty:ty, $chunked:ty) => {
-            primitive!(Unsigned<$ty>, $chunked, |value: Unsigned<$ty>| value.0)
+            primitive!(Integer<$ty>, $chunked, |value: Integer<$ty>| value.0)
         };
     }
 
     match dtype {
         SchemaSpec::Boolean => primitive!(bool, BooleanChunked),
-        SchemaSpec::UInt8 => unsigned!(u8, UInt8Chunked),
-        SchemaSpec::UInt16 => unsigned!(u16, UInt16Chunked),
-        SchemaSpec::UInt32 => unsigned!(u32, UInt32Chunked),
-        SchemaSpec::UInt64 => unsigned!(u64, UInt64Chunked),
-        SchemaSpec::UInt128 => unsigned!(u128, UInt128Chunked),
-        SchemaSpec::Int8 => primitive!(i8, Int8Chunked),
-        SchemaSpec::Int16 => primitive!(i16, Int16Chunked),
-        SchemaSpec::Int32 => primitive!(i32, Int32Chunked),
-        SchemaSpec::Int64 => primitive!(i64, Int64Chunked),
-        SchemaSpec::Int128 => primitive!(i128, Int128Chunked),
+        SchemaSpec::UInt8 => integer!(u8, UInt8Chunked),
+        SchemaSpec::UInt16 => integer!(u16, UInt16Chunked),
+        SchemaSpec::UInt32 => integer!(u32, UInt32Chunked),
+        SchemaSpec::UInt64 => integer!(u64, UInt64Chunked),
+        SchemaSpec::UInt128 => integer!(u128, UInt128Chunked),
+        SchemaSpec::Int8 => integer!(i8, Int8Chunked),
+        SchemaSpec::Int16 => integer!(i16, Int16Chunked),
+        SchemaSpec::Int32 => integer!(i32, Int32Chunked),
+        SchemaSpec::Int64 => integer!(i64, Int64Chunked),
+        SchemaSpec::Int128 => integer!(i128, Int128Chunked),
         SchemaSpec::Float32 => primitive!(f32, Float32Chunked),
         SchemaSpec::Float64 => primitive!(f64, Float64Chunked),
         SchemaSpec::String => primitive!(&str, StringChunked),
@@ -492,26 +492,26 @@ fn decode_leaf<'a>(
         };
     }
 
-    macro_rules! unsigned {
+    macro_rules! integer {
         ($ty:ty, $variant:path) => {
             result
-                .decode_path::<Unsigned<$ty>>(path)
+                .decode_path::<Integer<$ty>>(path)
                 .map(|value| value.map(|value| $variant(value.0)))
         };
     }
 
     match dtype {
         SchemaSpec::Boolean => scalar!(bool, Value::Boolean),
-        SchemaSpec::UInt8 => unsigned!(u8, Value::UInt8),
-        SchemaSpec::UInt16 => unsigned!(u16, Value::UInt16),
-        SchemaSpec::UInt32 => unsigned!(u32, Value::UInt32),
-        SchemaSpec::UInt64 => unsigned!(u64, Value::UInt64),
-        SchemaSpec::UInt128 => unsigned!(u128, Value::UInt128),
-        SchemaSpec::Int8 => scalar!(i8, Value::Int8),
-        SchemaSpec::Int16 => scalar!(i16, Value::Int16),
-        SchemaSpec::Int32 => scalar!(i32, Value::Int32),
-        SchemaSpec::Int64 => scalar!(i64, Value::Int64),
-        SchemaSpec::Int128 => scalar!(i128, Value::Int128),
+        SchemaSpec::UInt8 => integer!(u8, Value::UInt8),
+        SchemaSpec::UInt16 => integer!(u16, Value::UInt16),
+        SchemaSpec::UInt32 => integer!(u32, Value::UInt32),
+        SchemaSpec::UInt64 => integer!(u64, Value::UInt64),
+        SchemaSpec::UInt128 => integer!(u128, Value::UInt128),
+        SchemaSpec::Int8 => integer!(i8, Value::Int8),
+        SchemaSpec::Int16 => integer!(i16, Value::Int16),
+        SchemaSpec::Int32 => integer!(i32, Value::Int32),
+        SchemaSpec::Int64 => integer!(i64, Value::Int64),
+        SchemaSpec::Int128 => integer!(i128, Value::Int128),
         SchemaSpec::Float32 => scalar!(f32, Value::Float32),
         SchemaSpec::Float64 => scalar!(f64, Value::Float64),
         SchemaSpec::String => result

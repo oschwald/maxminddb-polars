@@ -288,6 +288,48 @@ def test_unsigned_list_accepts_signed_values_that_fit(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize("dtype", [pl.Int32, pl.Int64, pl.Int128])
+def test_signed_field_can_mix_signed_and_unsigned(tmp_path: Path, dtype: Any) -> None:
+    database = tmp_path / "signed.mmdb"
+    write_mmdb(
+        database,
+        "Custom-Signed",
+        {1: {"n": -5, "values": [-5, 100, 70_000]}, 2: {"n": 70_000, "values": []}},
+    )
+    frame = pl.DataFrame({"ip": ["1.0.0.1", "2.0.0.1"]})
+    assert frame.select(
+        mmp.lookup_path("ip", database, ["n"], dtype=dtype)
+    ).to_series().to_list() == [-5, 70_000]
+    assert frame.select(
+        mmp.lookup("ip", database, dtype={"n": dtype})
+    ).to_series().to_list() == [{"n": -5}, {"n": 70_000}]
+    assert frame.select(
+        mmp.lookup_path("ip", database, ["values"], dtype=pl.List(dtype))
+    ).to_series().to_list() == [[-5, 100, 70_000], []]
+
+
+@pytest.mark.parametrize(
+    "dtype,field,value",
+    [
+        (pl.Int8, "uint16", 65535),
+        (pl.Int16, "uint32", 4294967295),
+        (pl.Int32, "uint32", 4294967295),
+        (pl.Int64, "uint64", 18446744073709551615),
+        (pl.Int128, "uint128", 340282366920938463463374607431768211455),
+    ],
+)
+def test_signed_overflow_names_the_value(dtype: Any, field: str, value: int) -> None:
+    frame = pl.DataFrame({"ip": ["::255.255.255.255"]})
+    for expression in [
+        mmp.lookup_path("ip", CUSTOM_DB, [field], dtype=dtype),
+        mmp.lookup("ip", CUSTOM_DB, dtype={field: dtype}),
+    ]:
+        with pytest.raises(
+            pl.exceptions.ComputeError, match=f"MMDB value {value} does not fit"
+        ):
+            frame.select(expression)
+
+
 def test_inferred_unsigned_dtype_can_mix_encoded_widths(tmp_path: Path) -> None:
     database = tmp_path / "asn.mmdb"
     field = "autonomous_system_number"
