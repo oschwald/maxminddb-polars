@@ -402,6 +402,58 @@ def test_inferred_unsigned_dtype_can_mix_encoded_widths(tmp_path: Path) -> None:
     assert result.to_series().to_list() == [100, 70_000]
 
 
+def test_known_whole_record_can_mix_encoded_types(tmp_path: Path) -> None:
+    database = tmp_path / "asn.mmdb"
+    field = "autonomous_system_number"
+    write_mmdb(
+        database,
+        "GeoLite2-ASN",
+        {1: {field: 100}, 2: {field: 70_000}, 3: {field: mmdb_int32(5)}},
+    )
+    frame = pl.DataFrame({"ip": ["1.0.0.1", "2.0.0.1", "3.0.0.1", None]})
+    result = frame.select(mmp.lookup("ip", database))
+    assert result.schema == {"ip": mmp.schemas.ASN}
+    assert result.to_series().struct.field(field).to_list() == [100, 70_000, 5, None]
+
+
+def test_known_whole_record_overflow_names_the_value(tmp_path: Path) -> None:
+    database = tmp_path / "asn.mmdb"
+    write_mmdb(database, "GeoLite2-ASN", {1: {"autonomous_system_number": -5}})
+    with pytest.raises(
+        pl.exceptions.ComputeError,
+        match="could not decode ASN record in .*MMDB value -5 does not fit in "
+        "requested dtype u32",
+    ):
+        pl.DataFrame({"ip": ["1.0.0.1"]}).select(mmp.lookup("ip", database))
+
+
+def test_known_whole_record_keeps_the_subdivisions_limit(tmp_path: Path) -> None:
+    database = tmp_path / "city.mmdb"
+    subdivision = {"iso_code": "A"}
+    write_mmdb(
+        database,
+        "GeoIP2-City",
+        {
+            # A uint16 geoname_id fails the typed decode, so this record
+            # decodes with the projected decoder.
+            1: {"city": {"geoname_id": 5}, "subdivisions": [subdivision] * 32},
+            2: {"subdivisions": [subdivision] * 33},
+            # The limit applies before the elements decode, so their type
+            # errors do not appear.
+            3: {"subdivisions": ["not a map"] * 33},
+        },
+    )
+    result = pl.DataFrame({"ip": ["1.0.0.1"]}).select(mmp.lookup("ip", database))
+    assert len(result.to_series().struct.field("subdivisions").item()) == 32
+    for ip in ["2.0.0.1", "3.0.0.1"]:
+        with pytest.raises(
+            pl.exceptions.ComputeError,
+            match="could not decode City record in .*subdivisions exceeds "
+            "maximum length of 32",
+        ):
+            pl.DataFrame({"ip": [ip]}).select(mmp.lookup("ip", database))
+
+
 def test_unsigned_conversion_preserves_invalid_and_missing_paths() -> None:
     frame = pl.DataFrame({"ip": ["::1.1.1.0", "not-an-ip", None]})
     expression = mmp.lookup_path("ip", CUSTOM_DB, ["array", 0], dtype=pl.UInt16)

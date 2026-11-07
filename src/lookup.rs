@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::net::IpAddr;
 
 use maxminddb::LookupResult;
+use maxminddb::geoip2::MAX_SUBDIVISIONS;
 use polars::prelude::*;
 use polars_arrow::array::Utf8ViewArray;
 use polars_arrow::bitmap::Bitmap;
@@ -15,7 +16,9 @@ use crate::cache::identity_for_path;
 use crate::cache::{CachedReader, DatabaseIdentity, reader_for};
 use crate::guard::catch_mmdb_unwind;
 use crate::known::decode_known;
-use crate::schema::{PathPart, SchemaSpec, resolve_path_dtype, resolve_record_dtype, to_mmdb_path};
+use crate::schema::{
+    KnownRecord, PathPart, SchemaSpec, resolve_path_dtype, resolve_record_dtype, to_mmdb_path,
+};
 use crate::value::{
     Double, Integer, Value, decode_projected_path, values_to_series, with_projected_schema,
 };
@@ -166,11 +169,23 @@ pub fn lookup_record_series(
         );
     };
     let unique_values = guard_mmdb_operation(&kwargs.database, || {
-        batch
-            .unique
-            .iter()
-            .map(|result| decode_known(result, record))
-            .collect::<PolarsResult<Vec<_>>>()
+        // decode_known_record retries with the projected decoder, which reads
+        // this schema.
+        with_projected_schema(&dtype, || {
+            batch
+                .unique
+                .iter()
+                .map(|result| decode_known_record(result, record))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(|error| {
+            polars_err!(
+                ComputeError:
+                "could not decode {} record in {:?}: {error}",
+                record.name(),
+                kwargs.database.canonical_path
+            )
+        })
     })?;
     decoded_values_to_series(input.name().clone(), &unique_values, &batch.rows, &dtype)
 }
@@ -548,6 +563,91 @@ fn assemble_projection_series(
         .into_series())
 }
 
+fn decode_known_record<'a>(
+    result: &LookupResult<'a, Vec<u8>>,
+    record: KnownRecord,
+) -> Result<Option<Value<'a>>, maxminddb::MaxMindDbError> {
+    // The typed record structs require the standard encoded types. A writer
+    // can pick another type that fits, such as uint16 for an ASN, so retry
+    // decoding errors with the projected decoder. Its error replaces the typed
+    // one because it applies the rules that custom dtypes use. Other errors,
+    // such as an invalid database or a resource limit, are returned as is.
+    match decode_known(result, record) {
+        Err(maxminddb::MaxMindDbError::Decoding { .. }) => decode_projected_record(result, record),
+        decoded => decoded,
+    }
+}
+
+/// Decodes a known record with the projected decoder.
+///
+/// The typed City and Enterprise structs reject more than `MAX_SUBDIVISIONS`
+/// subdivisions with a decoding error. Apply the same limit here, so a retry
+/// does not accept a record that the typed decode rejected. Check it before
+/// the projected decode, which would otherwise build every subdivision first.
+fn decode_projected_record<'a>(
+    result: &LookupResult<'a, Vec<u8>>,
+    record: KnownRecord,
+) -> Result<Option<Value<'a>>, maxminddb::MaxMindDbError> {
+    if matches!(record, KnownRecord::City | KnownRecord::Enterprise) {
+        check_subdivision_count(result)?;
+    }
+    decode_projected_path(result, &[])
+}
+
+fn check_subdivision_count(
+    result: &LookupResult<'_, Vec<u8>>,
+) -> Result<(), maxminddb::MaxMindDbError> {
+    match result.decode_path::<SubdivisionCount>(&[maxminddb::PathElement::Key("subdivisions")]) {
+        Ok(Some(SubdivisionCount(count))) if count > MAX_SUBDIVISIONS => {
+            Err(maxminddb::MaxMindDbError::decoding(format!(
+                "subdivisions exceeds maximum length of {MAX_SUBDIVISIONS}"
+            )))
+        }
+        // The projected decode reports a subdivisions value that is not an
+        // array, with the same error that custom dtypes get.
+        Ok(_) | Err(maxminddb::MaxMindDbError::Decoding { .. }) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// The length of an MMDB array, up to one more than `MAX_SUBDIVISIONS`.
+struct SubdivisionCount(usize);
+
+impl<'de> Deserialize<'de> for SubdivisionCount {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(SubdivisionCountVisitor)
+    }
+}
+
+struct SubdivisionCountVisitor;
+
+impl<'de> serde::de::Visitor<'de> for SubdivisionCountVisitor {
+    type Value = SubdivisionCount;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("an MMDB array")
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        if let Some(count) = sequence.size_hint() {
+            return Ok(SubdivisionCount(count));
+        }
+        let mut count = 0;
+        while count <= MAX_SUBDIVISIONS
+            && sequence.next_element::<serde::de::IgnoredAny>()?.is_some()
+        {
+            count += 1;
+        }
+        Ok(SubdivisionCount(count))
+    }
+}
+
 fn decoded_values_to_series(
     name: PlSmallStr,
     unique_values: &[Option<Value<'_>>],
@@ -651,6 +751,38 @@ mod tests {
 
     fn series(values: &[Option<&str>]) -> Series {
         StringChunked::from_iter_options("ip".into(), values.iter().copied()).into_series()
+    }
+
+    // A batch can mix typed and projected records, and values_to_series
+    // accepts only the exact Value variant of each dtype. Both decoders must
+    // give the same Value for every record.
+    #[test]
+    fn typed_and_projected_decoders_agree_on_known_fixtures() {
+        let mut checked = std::collections::BTreeSet::new();
+        for entry in fs::read_dir("tests/data/test-data").unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_str().unwrap();
+            let standard = name.starts_with("GeoIP2-") || name.starts_with("GeoLite2-");
+            if !standard || name.contains("Broken") || name.contains("Invalid") {
+                continue;
+            }
+            let reader = Reader::open_readfile(&path).unwrap();
+            let Some(record) = KnownRecord::from_database_type(&reader.metadata().database_type)
+            else {
+                continue;
+            };
+            let schema = record.schema();
+            for network in reader.networks(Default::default()).unwrap() {
+                let result = network.unwrap();
+                let typed = decode_known(&result, record).unwrap();
+                let projected =
+                    with_projected_schema(&schema, || decode_projected_path(&result, &[])).unwrap();
+                assert_eq!(typed, projected, "{name}");
+                checked.insert(record.name());
+            }
+        }
+        // One fixture for each KnownRecord.
+        assert_eq!(checked.len(), 9, "{checked:?}");
     }
 
     #[test]

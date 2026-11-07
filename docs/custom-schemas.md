@@ -31,9 +31,10 @@ Custom integer dtypes accept any encoded integer when the value fits the
 requested dtype exactly. Signed dtypes accept unsigned values, and unsigned
 dtypes accept non-negative signed values. Writers can pick the type for each
 value, so one field can mix types. This applies to scalar paths, List elements,
-and whole-record projections. Out-of-range values, including negative values
-for unsigned dtypes, raise `ComputeError`, including with `strict=False`. They
-are never truncated. Integer dtypes reject floats, strings, and booleans.
+and whole-record projections, and to whole-record lookups on standard
+databases. Out-of-range values, including negative values for unsigned dtypes,
+raise `ComputeError`, including with `strict=False`. They are never truncated.
+Integer dtypes reject floats, strings, and booleans.
 
 `pl.Float64` accepts encoded float and double values. `pl.Float32` accepts only
 encoded float values.

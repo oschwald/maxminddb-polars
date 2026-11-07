@@ -25,14 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   projections previously accepted only some of these types, and List elements
   rejected int32 values. Out-of-range values, including negative values, still
   raise an error rather than truncating, and the error now names the value.
-  Whole-record lookups on known databases still require the standard types
-  unless `dtype` selects a subset of the fields.
 - Accept unsigned values that fit in signed integer dtypes on every path. A
   field can mix int32 and unsigned types when the writer picks the type for each
   value. Scalar paths and whole-record projections previously accepted only
   some of these combinations, and List elements accepted none.
 - Accept encoded float values for `dtype=pl.Float64` in scalar paths and
   whole-record projections, as List elements already did.
+- Whole-record lookups on standard databases now accept the same encoded types
+  as custom dtypes. They previously required the types that MaxMind databases
+  use, such as uint32 for `autonomous_system_number`, even though `lookup_path`
+  and partial dtypes accepted any type that fit. Decoding errors from these
+  lookups now name the database path, for example
+  `could not decode ASN record in "<path>": ...`.
 - Type errors for Boolean, Float32, String, and Binary List elements now name
   the decoder offset, as scalar paths and whole-record projections already did.
 

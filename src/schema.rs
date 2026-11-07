@@ -440,6 +440,20 @@ impl KnownRecord {
         }
     }
 
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::City => "City",
+            Self::Country => "Country",
+            Self::Enterprise => "Enterprise",
+            Self::Isp => "ISP",
+            Self::ConnectionType => "Connection Type",
+            Self::AnonymousIp => "Anonymous IP",
+            Self::DensityIncome => "Density/Income",
+            Self::Domain => "Domain",
+            Self::Asn => "ASN",
+        }
+    }
+
     pub fn schema(self) -> SchemaSpec {
         match self {
             Self::City => city_schema(),
