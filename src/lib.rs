@@ -5,7 +5,8 @@ mod lookup;
 mod schema;
 mod value;
 
-#[cfg(feature = "fuzzing")]
+// Tests also build this module so they cover its helpers.
+#[cfg(any(test, feature = "fuzzing"))]
 #[doc(hidden)]
 pub mod fuzzing;
 

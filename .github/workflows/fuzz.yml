@@ -50,6 +50,7 @@ jobs:
         run: |
           mkdir -p fuzz/corpus/projected_value fuzz/corpus/malformed_database
           cp tests/data/test-data/GeoIP2-City-Test.mmdb fuzz/corpus/projected_value/
+          cp tests/data/test-data/MaxMind-DB-test-decoder.mmdb fuzz/corpus/malformed_database/
           find tests/data/bad-data -name '*.mmdb' -exec cp {} fuzz/corpus/malformed_database/ \;
       - name: Run bounded fuzz targets
         shell: bash

@@ -165,14 +165,14 @@ fn render_path(path: &[PathPart]) -> String {
         .join("/")
 }
 
-fn field(name: &str, dtype: SchemaSpec) -> SchemaField {
+pub(crate) fn field(name: &str, dtype: SchemaSpec) -> SchemaField {
     SchemaField {
         name: name.to_owned(),
         dtype,
     }
 }
 
-fn struct_(fields: Vec<SchemaField>) -> SchemaSpec {
+pub(crate) fn struct_(fields: Vec<SchemaField>) -> SchemaSpec {
     SchemaSpec::Struct { fields }
 }
 
