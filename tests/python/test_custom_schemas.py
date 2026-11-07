@@ -248,6 +248,46 @@ def test_unsigned_dtype_reads_wide_values_and_long_keys(tmp_path: Path) -> None:
     ).to_series().to_list() == [2**40, 2**100]
 
 
+@pytest.mark.parametrize(
+    "dtype,value",
+    [
+        (pl.List(pl.UInt16), 70_000),
+        (pl.List(pl.Struct({"n": pl.UInt16})), {"n": 70_000}),
+    ],
+)
+def test_nested_unsigned_overflow_names_the_value(
+    tmp_path: Path, dtype: Any, value: Any
+) -> None:
+    database = tmp_path / "nested.mmdb"
+    write_mmdb(database, "Custom-Nested", {1: {"values": [value]}})
+    frame = pl.DataFrame({"ip": ["1.0.0.1"]})
+    with pytest.raises(
+        pl.exceptions.ComputeError,
+        match="MMDB value 70000 does not fit in requested dtype u16",
+    ):
+        frame.select(mmp.lookup_path("ip", database, ["values"], dtype=dtype))
+
+
+def test_unsigned_list_accepts_signed_values_that_fit(tmp_path: Path) -> None:
+    database = tmp_path / "list.mmdb"
+    write_mmdb(
+        database,
+        "Custom-List",
+        {1: {"values": [mmdb_int32(5), 70_000]}, 2: {"values": [-5]}},
+    )
+    dtype = pl.List(pl.UInt32)
+    assert pl.DataFrame({"ip": ["1.0.0.1"]}).select(
+        mmp.lookup_path("ip", database, ["values"], dtype=dtype)
+    ).to_series().to_list() == [[5, 70_000]]
+    with pytest.raises(
+        pl.exceptions.ComputeError,
+        match="MMDB value -5 does not fit in requested dtype u32",
+    ):
+        pl.DataFrame({"ip": ["2.0.0.1"]}).select(
+            mmp.lookup_path("ip", database, ["values"], dtype=dtype)
+        )
+
+
 def test_inferred_unsigned_dtype_can_mix_encoded_widths(tmp_path: Path) -> None:
     database = tmp_path / "asn.mmdb"
     field = "autonomous_system_number"

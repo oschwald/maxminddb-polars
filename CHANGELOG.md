@@ -19,13 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Accept any encoded unsigned integer width that fits the requested unsigned
-  dtype in scalar paths and whole-record projections, as List elements already
-  did. These paths also accept non-negative int32 values. A field can mix types
-  when the writer picks the type for each value. Out-of-range values still
-  raise an error rather than truncating, and the error for these paths now
-  names the value. Whole-record lookups on known databases still require the
-  standard types unless `dtype` selects a subset of the fields.
+- Accept any encoded integer that fits the requested unsigned dtype on every
+  path, including non-negative int32 values. A field can mix types when the
+  writer picks the type for each value. Scalar paths and whole-record
+  projections previously accepted only some of these types, and List elements
+  rejected int32 values. Out-of-range values, including negative values, still
+  raise an error rather than truncating, and the error now names the value.
+  Whole-record lookups on known databases still require the standard types
+  unless `dtype` selects a subset of the fields.
 
 ## [0.3.0] - 2026-10-17
 

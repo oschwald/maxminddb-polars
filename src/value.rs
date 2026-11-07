@@ -190,11 +190,31 @@ impl<'de> DeserializeSeed<'de> for SchemaSeed<'_> {
             SchemaSpec::List { inner } => {
                 deserializer.deserialize_seq(ProjectedListVisitor { inner })
             }
-            schema => {
-                let value = Value::deserialize(deserializer)?;
-                validate_scalar(&value, schema).map_err(D::Error::custom)?;
-                Ok(value)
-            }
+            schema => decode_scalar(deserializer, schema),
+        }
+    }
+}
+
+fn decode_scalar<'de, D>(deserializer: D, schema: &SchemaSpec) -> Result<Value<'de>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    macro_rules! unsigned {
+        ($ty:ty, $variant:path) => {
+            Unsigned::<$ty>::deserialize(deserializer).map(|value| $variant(value.0))
+        };
+    }
+
+    match schema {
+        SchemaSpec::UInt8 => unsigned!(u8, Value::UInt8),
+        SchemaSpec::UInt16 => unsigned!(u16, Value::UInt16),
+        SchemaSpec::UInt32 => unsigned!(u32, Value::UInt32),
+        SchemaSpec::UInt64 => unsigned!(u64, Value::UInt64),
+        SchemaSpec::UInt128 => unsigned!(u128, Value::UInt128),
+        schema => {
+            let value = Value::deserialize(deserializer)?;
+            validate_scalar(&value, schema).map_err(D::Error::custom)?;
+            Ok(value)
         }
     }
 }
@@ -449,53 +469,9 @@ pub fn default_value(schema: &SchemaSpec) -> Value<'static> {
     }
 }
 
-#[cfg(test)]
-fn project_value<'a>(value: &Value<'a>, schema: &SchemaSpec) -> PolarsResult<Value<'a>> {
-    match (value, schema) {
-        (Value::Map(values), SchemaSpec::Struct { fields }) => Ok(Value::Map(
-            fields
-                .iter()
-                .map(|field| {
-                    let projected = values
-                        .iter()
-                        .find(|(name, _)| name.as_ref() == field.name)
-                        .map(|(_, value)| project_value(value, &field.dtype))
-                        .unwrap_or_else(|| Ok(default_value(&field.dtype)));
-                    projected.map(|value| (Cow::Owned(field.name.clone()), value))
-                })
-                .collect::<PolarsResult<Vec<_>>>()?,
-        )),
-        (Value::List(values), SchemaSpec::List { inner }) => Ok(Value::List(
-            values
-                .iter()
-                .map(|value| project_value(value, inner))
-                .collect::<PolarsResult<Vec<_>>>()?,
-        )),
-        (Value::Null, SchemaSpec::Struct { .. } | SchemaSpec::List { .. }) => {
-            Ok(default_value(schema))
-        }
-        (Value::Null, _) => Ok(Value::Null),
-        (value, SchemaSpec::Struct { .. }) => {
-            polars_bail!(ComputeError: "expected MMDB map, got {}", value.kind())
-        }
-        (value, SchemaSpec::List { .. }) => {
-            polars_bail!(ComputeError: "expected MMDB array, got {}", value.kind())
-        }
-        (value, _) => {
-            validate_scalar(value, schema)?;
-            Ok(value.clone())
-        }
-    }
-}
-
 fn validate_scalar(value: &Value<'_>, schema: &SchemaSpec) -> PolarsResult<()> {
     let valid = match schema {
         SchemaSpec::Boolean => matches!(value, Value::Boolean(_)),
-        SchemaSpec::UInt8 => unsigned(value).is_some_and(|value| u8::try_from(value).is_ok()),
-        SchemaSpec::UInt16 => unsigned(value).is_some_and(|value| u16::try_from(value).is_ok()),
-        SchemaSpec::UInt32 => unsigned(value).is_some_and(|value| u32::try_from(value).is_ok()),
-        SchemaSpec::UInt64 => unsigned(value).is_some_and(|value| u64::try_from(value).is_ok()),
-        SchemaSpec::UInt128 => unsigned(value).is_some(),
         SchemaSpec::Int8 => signed(value).is_some_and(|value| i8::try_from(value).is_ok()),
         SchemaSpec::Int16 => signed(value).is_some_and(|value| i16::try_from(value).is_ok()),
         SchemaSpec::Int32 => signed(value).is_some_and(|value| i32::try_from(value).is_ok()),
@@ -505,7 +481,13 @@ fn validate_scalar(value: &Value<'_>, schema: &SchemaSpec) -> PolarsResult<()> {
         SchemaSpec::Float64 => matches!(value, Value::Float32(_) | Value::Float64(_)),
         SchemaSpec::String => matches!(value, Value::String(_)),
         SchemaSpec::Binary => matches!(value, Value::Binary(_)),
-        SchemaSpec::List { .. } | SchemaSpec::Struct { .. } => unreachable!(),
+        SchemaSpec::UInt8
+        | SchemaSpec::UInt16
+        | SchemaSpec::UInt32
+        | SchemaSpec::UInt64
+        | SchemaSpec::UInt128
+        | SchemaSpec::List { .. }
+        | SchemaSpec::Struct { .. } => unreachable!(),
     };
     if valid {
         Ok(())
@@ -777,7 +759,10 @@ mod tests {
                 ),
             ],
         };
-        let projected = project_value(&Value::Map(Vec::new()), &schema).unwrap();
+        let empty = serde::de::value::MapDeserializer::<_, serde::de::value::Error>::new(
+            std::iter::empty::<(&str, u32)>(),
+        );
+        let projected = SchemaSeed(&schema).deserialize(empty).unwrap();
         assert_eq!(projected, default_value(&schema));
     }
 
