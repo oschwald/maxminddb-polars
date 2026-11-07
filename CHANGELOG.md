@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added Python Polars 2.1 support. Polars 2.1 requires Python 3.11 or later.
+  Python 3.10 installs Polars 2.0.
+
+### Changed
+
+- Updated Rust and Python dependencies, CI actions, development tools, and
+  MaxMind-DB test fixtures to their latest compatible versions.
+
 ## [0.3.0] - 2026-10-17
 
 ### Added

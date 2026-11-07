@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.15,<1.16"]
+requires = ["maturin>=1.15,<1.17"]
 build-backend = "maturin"
 
 [project]
@@ -29,7 +29,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 keywords = ["maxmind", "geoip", "mmdb", "polars"]
-dependencies = ["polars>=1.43.2,<2.1"]
+dependencies = ["polars>=1.43.2,<2.2"]
 
 [project.urls]
 Homepage = "https://github.com/oschwald/maxminddb-polars"
@@ -43,7 +43,7 @@ test = ["pytest>=9"]
 
 [dependency-groups]
 dev = [
-    "maturin>=1.15,<1.16",
+    "maturin>=1.15,<1.17",
     "mypy>=1.19,<3",
     "pytest>=9,<10",
     "ruff>=0.15,<0.18",

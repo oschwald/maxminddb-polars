@@ -870,7 +870,7 @@ mod tests {
         let input = series(&values);
         assert_eq!(
             fixtures.len(),
-            25,
+            29,
             "expected the complete corruption corpus"
         );
         for database in fixtures {
