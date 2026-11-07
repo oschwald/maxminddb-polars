@@ -485,18 +485,16 @@ fn decode_leaf<'a>(
     dtype: &SchemaSpec,
 ) -> Result<Option<Value<'a>>, maxminddb::MaxMindDbError> {
     macro_rules! scalar {
-        ($ty:ty, $variant:path) => {
+        ($ty:ty, $convert:expr) => {
             result
                 .decode_path::<$ty>(path)
-                .map(|value| value.map($variant))
+                .map(|value| value.map($convert))
         };
     }
 
     macro_rules! integer {
         ($ty:ty, $variant:path) => {
-            result
-                .decode_path::<Integer<$ty>>(path)
-                .map(|value| value.map(|value| $variant(value.0)))
+            scalar!(Integer<$ty>, |value: Integer<$ty>| $variant(value.0))
         };
     }
 
@@ -513,15 +511,9 @@ fn decode_leaf<'a>(
         SchemaSpec::Int64 => integer!(i64, Value::Int64),
         SchemaSpec::Int128 => integer!(i128, Value::Int128),
         SchemaSpec::Float32 => scalar!(f32, Value::Float32),
-        SchemaSpec::Float64 => result
-            .decode_path::<Double>(path)
-            .map(|value| value.map(|value| Value::Float64(value.0))),
-        SchemaSpec::String => result
-            .decode_path::<&'a str>(path)
-            .map(|value| value.map(|value| Value::String(Cow::Borrowed(value)))),
-        SchemaSpec::Binary => result
-            .decode_path::<&'a [u8]>(path)
-            .map(|value| value.map(|value| Value::Binary(Cow::Borrowed(value)))),
+        SchemaSpec::Float64 => scalar!(Double, |value: Double| Value::Float64(value.0)),
+        SchemaSpec::String => scalar!(&'a str, |value| Value::String(Cow::Borrowed(value))),
+        SchemaSpec::Binary => scalar!(&'a [u8], |value| Value::Binary(Cow::Borrowed(value))),
         SchemaSpec::List { .. } => decode_projected_path(result, path),
         SchemaSpec::Struct { .. } => unreachable!("Struct projections are flattened"),
     }
