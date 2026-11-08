@@ -1,13 +1,16 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::fmt;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use maxminddb::{LookupResult, MaxMindDbError, PathElement};
 use polars::chunked_array::builder::{AnonymousOwnedListBuilder, ListBuilderTrait};
 use polars::prelude::*;
 use polars_arrow::bitmap::Bitmap;
-use serde::de::{DeserializeSeed, Error as _, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::de::{
+    DeserializeSeed, Error as _, Expected, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor,
+};
 use serde::{Deserialize, Deserializer};
 
 use crate::schema::{SchemaField, SchemaSpec};
@@ -67,6 +70,135 @@ pub fn decode_projected_path<'a>(
         .map(|value| value.map(|value| value.0))
 }
 
+/// An integer type that a Polars dtype stores.
+pub trait IntegerDtype: TryFrom<u128> + TryFrom<i128> {
+    const SCHEMA: SchemaSpec;
+}
+
+macro_rules! integer_dtype {
+    ($ty:ty, $schema:ident) => {
+        impl IntegerDtype for $ty {
+            const SCHEMA: SchemaSpec = SchemaSpec::$schema;
+        }
+    };
+}
+
+integer_dtype!(u8, UInt8);
+integer_dtype!(u16, UInt16);
+integer_dtype!(u32, UInt32);
+integer_dtype!(u64, UInt64);
+integer_dtype!(u128, UInt128);
+integer_dtype!(i8, Int8);
+integer_dtype!(i16, Int16);
+integer_dtype!(i32, Int32);
+integer_dtype!(i64, Int64);
+integer_dtype!(i128, Int128);
+
+/// An MMDB integer of any encoded type and width that fits `T`.
+///
+/// Writers can choose the type for each value, so one field can mix uint16,
+/// uint32, and int32.
+#[derive(Clone, Copy)]
+pub struct Integer<T>(pub T);
+
+impl<'de, T: IntegerDtype> Deserialize<'de> for Integer<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(IntegerVisitor(PhantomData))
+    }
+}
+
+struct IntegerVisitor<T>(PhantomData<T>);
+
+impl<T: IntegerDtype> Visitor<'_> for IntegerVisitor<T> {
+    type Value = Integer<T>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an MMDB integer")
+    }
+
+    // serde forwards visit_u8, visit_u16, and visit_u32 to visit_u64.
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_u128(value.into())
+    }
+
+    fn visit_u128<E>(self, value: u128) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        T::try_from(value)
+            .map(Integer)
+            .map_err(|_| out_of_range::<T, E>(value))
+    }
+
+    // serde forwards visit_i8, visit_i16, and visit_i32 to visit_i64.
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_i128(value.into())
+    }
+
+    fn visit_i128<E>(self, value: i128) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        T::try_from(value)
+            .map(Integer)
+            .map_err(|_| out_of_range::<T, E>(value))
+    }
+
+    fn visit_str<E>(self, _value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Err(string_type_error(&self))
+    }
+}
+
+/// An MMDB float or double, widened to `f64`.
+#[derive(Clone, Copy)]
+pub struct Double(pub f64);
+
+impl<'de> Deserialize<'de> for Double {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(DoubleVisitor)
+    }
+}
+
+struct DoubleVisitor;
+
+impl Visitor<'_> for DoubleVisitor {
+    type Value = Double;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an MMDB float or double")
+    }
+
+    // serde forwards visit_f32 to visit_f64.
+    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(Double(value))
+    }
+
+    fn visit_str<E>(self, _value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Err(string_type_error(&self))
+    }
+}
+
 struct ProjectedValue<'a>(Value<'a>);
 
 impl<'de> Deserialize<'de> for ProjectedValue<'de> {
@@ -93,17 +225,37 @@ impl<'de> DeserializeSeed<'de> for SchemaSeed<'_> {
     where
         D: Deserializer<'de>,
     {
+        macro_rules! integer {
+            ($ty:ty, $variant:path) => {
+                Integer::<$ty>::deserialize(deserializer).map(|value| $variant(value.0))
+            };
+        }
+
         match self.0 {
+            SchemaSpec::Boolean => bool::deserialize(deserializer).map(Value::Boolean),
+            SchemaSpec::UInt8 => integer!(u8, Value::UInt8),
+            SchemaSpec::UInt16 => integer!(u16, Value::UInt16),
+            SchemaSpec::UInt32 => integer!(u32, Value::UInt32),
+            SchemaSpec::UInt64 => integer!(u64, Value::UInt64),
+            SchemaSpec::UInt128 => integer!(u128, Value::UInt128),
+            SchemaSpec::Int8 => integer!(i8, Value::Int8),
+            SchemaSpec::Int16 => integer!(i16, Value::Int16),
+            SchemaSpec::Int32 => integer!(i32, Value::Int32),
+            SchemaSpec::Int64 => integer!(i64, Value::Int64),
+            SchemaSpec::Int128 => integer!(i128, Value::Int128),
+            SchemaSpec::Float32 => f32::deserialize(deserializer).map(Value::Float32),
+            SchemaSpec::Float64 => {
+                Double::deserialize(deserializer).map(|value| Value::Float64(value.0))
+            }
+            SchemaSpec::String => <&'de str>::deserialize(deserializer)
+                .map(|value| Value::String(Cow::Borrowed(value))),
+            SchemaSpec::Binary => <&'de [u8]>::deserialize(deserializer)
+                .map(|value| Value::Binary(Cow::Borrowed(value))),
             SchemaSpec::Struct { fields } => {
                 deserializer.deserialize_map(ProjectedMapVisitor { fields })
             }
             SchemaSpec::List { inner } => {
                 deserializer.deserialize_seq(ProjectedListVisitor { inner })
-            }
-            schema => {
-                let value = Value::deserialize(deserializer)?;
-                validate_scalar(&value, schema).map_err(D::Error::custom)?;
-                Ok(value)
             }
         }
     }
@@ -132,7 +284,15 @@ impl<'de> Visitor<'de> for ProjectedMapVisitor<'_> {
                 .enumerate()
                 .find(|(_, field)| field.name == key)
             {
-                values[index] = Some(map.next_value_seed(SchemaSeed(&field.dtype))?);
+                // Keep the first value for a repeated key, as decode_path
+                // does, so every lookup of a valid record reads the same
+                // value. Later values are still skipped, so a malformed one
+                // fails here but not on a path lookup.
+                if values[index].is_some() {
+                    map.next_value::<IgnoredAny>()?;
+                } else {
+                    values[index] = Some(map.next_value_seed(SchemaSeed(&field.dtype))?);
+                }
             } else {
                 map.next_value::<IgnoredAny>()?;
             }
@@ -205,147 +365,6 @@ impl Value<'_> {
     }
 }
 
-impl<'de> Deserialize<'de> for Value<'de> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_any(ValueVisitor)
-    }
-}
-
-struct ValueVisitor;
-
-impl<'de> Visitor<'de> for ValueVisitor {
-    type Value = Value<'de>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a supported MaxMind DB value")
-    }
-
-    fn visit_unit<E>(self) -> Result<Self::Value, E> {
-        Ok(Value::Null)
-    }
-
-    fn visit_none<E>(self) -> Result<Self::Value, E> {
-        Ok(Value::Null)
-    }
-
-    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Deserialize::deserialize(deserializer)
-    }
-
-    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
-        Ok(Value::Boolean(value))
-    }
-
-    fn visit_u8<E>(self, value: u8) -> Result<Self::Value, E> {
-        Ok(Value::UInt8(value))
-    }
-
-    fn visit_u16<E>(self, value: u16) -> Result<Self::Value, E> {
-        Ok(Value::UInt16(value))
-    }
-
-    fn visit_u32<E>(self, value: u32) -> Result<Self::Value, E> {
-        Ok(Value::UInt32(value))
-    }
-
-    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
-        Ok(Value::UInt64(value))
-    }
-
-    fn visit_u128<E>(self, value: u128) -> Result<Self::Value, E> {
-        Ok(Value::UInt128(value))
-    }
-
-    fn visit_i8<E>(self, value: i8) -> Result<Self::Value, E> {
-        Ok(Value::Int8(value))
-    }
-
-    fn visit_i16<E>(self, value: i16) -> Result<Self::Value, E> {
-        Ok(Value::Int16(value))
-    }
-
-    fn visit_i32<E>(self, value: i32) -> Result<Self::Value, E> {
-        Ok(Value::Int32(value))
-    }
-
-    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
-        Ok(Value::Int64(value))
-    }
-
-    fn visit_i128<E>(self, value: i128) -> Result<Self::Value, E> {
-        Ok(Value::Int128(value))
-    }
-
-    fn visit_f32<E>(self, value: f32) -> Result<Self::Value, E> {
-        Ok(Value::Float32(value))
-    }
-
-    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E> {
-        Ok(Value::Float64(value))
-    }
-
-    fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E> {
-        Ok(Value::String(Cow::Borrowed(value)))
-    }
-
-    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
-        Ok(Value::String(Cow::Owned(value.to_owned())))
-    }
-
-    fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
-        Ok(Value::String(Cow::Owned(value)))
-    }
-
-    fn visit_borrowed_bytes<E>(self, value: &'de [u8]) -> Result<Self::Value, E> {
-        Ok(Value::Binary(Cow::Borrowed(value)))
-    }
-
-    fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E> {
-        Ok(Value::Binary(Cow::Owned(value.to_vec())))
-    }
-
-    fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E> {
-        Ok(Value::Binary(Cow::Owned(value)))
-    }
-
-    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
-    where
-        A: SeqAccess<'de>,
-    {
-        let mut values = Vec::with_capacity(
-            sequence
-                .size_hint()
-                .unwrap_or(0)
-                .min(INITIAL_CONTAINER_CAPACITY_LIMIT),
-        );
-        while let Some(value) = sequence.next_element()? {
-            values.push(value);
-        }
-        Ok(Value::List(values))
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-    where
-        A: MapAccess<'de>,
-    {
-        let mut values = Vec::with_capacity(
-            map.size_hint()
-                .unwrap_or(0)
-                .min(INITIAL_CONTAINER_CAPACITY_LIMIT),
-        );
-        while let Some((key, value)) = map.next_entry::<Cow<'de, str>, Value<'de>>()? {
-            values.push((key, value));
-        }
-        Ok(Value::Map(values))
-    }
-}
-
 pub fn default_value(schema: &SchemaSpec) -> Value<'static> {
     match schema {
         SchemaSpec::Struct { fields } => Value::Map(
@@ -359,131 +378,21 @@ pub fn default_value(schema: &SchemaSpec) -> Value<'static> {
     }
 }
 
-#[cfg(test)]
-fn project_value<'a>(value: &Value<'a>, schema: &SchemaSpec) -> PolarsResult<Value<'a>> {
-    match (value, schema) {
-        (Value::Map(values), SchemaSpec::Struct { fields }) => Ok(Value::Map(
-            fields
-                .iter()
-                .map(|field| {
-                    let projected = values
-                        .iter()
-                        .find(|(name, _)| name.as_ref() == field.name)
-                        .map(|(_, value)| project_value(value, &field.dtype))
-                        .unwrap_or_else(|| Ok(default_value(&field.dtype)));
-                    projected.map(|value| (Cow::Owned(field.name.clone()), value))
-                })
-                .collect::<PolarsResult<Vec<_>>>()?,
-        )),
-        (Value::List(values), SchemaSpec::List { inner }) => Ok(Value::List(
-            values
-                .iter()
-                .map(|value| project_value(value, inner))
-                .collect::<PolarsResult<Vec<_>>>()?,
-        )),
-        (Value::Null, SchemaSpec::Struct { .. } | SchemaSpec::List { .. }) => {
-            Ok(default_value(schema))
-        }
-        (Value::Null, _) => Ok(Value::Null),
-        (value, SchemaSpec::Struct { .. }) => {
-            polars_bail!(ComputeError: "expected MMDB map, got {}", value.kind())
-        }
-        (value, SchemaSpec::List { .. }) => {
-            polars_bail!(ComputeError: "expected MMDB array, got {}", value.kind())
-        }
-        (value, _) => {
-            validate_scalar(value, schema)?;
-            Ok(value.clone())
-        }
-    }
-}
-
-fn validate_scalar(value: &Value<'_>, schema: &SchemaSpec) -> PolarsResult<()> {
-    let valid = match schema {
-        SchemaSpec::Boolean => matches!(value, Value::Boolean(_)),
-        SchemaSpec::UInt8 => unsigned(value).is_some_and(|value| u8::try_from(value).is_ok()),
-        SchemaSpec::UInt16 => unsigned(value).is_some_and(|value| u16::try_from(value).is_ok()),
-        SchemaSpec::UInt32 => unsigned(value).is_some_and(|value| u32::try_from(value).is_ok()),
-        SchemaSpec::UInt64 => unsigned(value).is_some_and(|value| u64::try_from(value).is_ok()),
-        SchemaSpec::UInt128 => unsigned(value).is_some(),
-        SchemaSpec::Int8 => signed(value).is_some_and(|value| i8::try_from(value).is_ok()),
-        SchemaSpec::Int16 => signed(value).is_some_and(|value| i16::try_from(value).is_ok()),
-        SchemaSpec::Int32 => signed(value).is_some_and(|value| i32::try_from(value).is_ok()),
-        SchemaSpec::Int64 => signed(value).is_some_and(|value| i64::try_from(value).is_ok()),
-        SchemaSpec::Int128 => signed(value).is_some(),
-        SchemaSpec::Float32 => matches!(value, Value::Float32(_)),
-        SchemaSpec::Float64 => matches!(value, Value::Float32(_) | Value::Float64(_)),
-        SchemaSpec::String => matches!(value, Value::String(_)),
-        SchemaSpec::Binary => matches!(value, Value::Binary(_)),
-        SchemaSpec::List { .. } | SchemaSpec::Struct { .. } => unreachable!(),
-    };
-    if valid {
-        Ok(())
-    } else {
-        polars_bail!(
-            ComputeError:
-            "MMDB value of type {} does not match requested dtype {}",
-            value.kind(),
-            schema.to_polars()
-        )
-    }
-}
-
-fn unsigned(value: &Value<'_>) -> Option<u128> {
-    match value {
-        Value::UInt8(value) => Some((*value).into()),
-        Value::UInt16(value) => Some((*value).into()),
-        Value::UInt32(value) => Some((*value).into()),
-        Value::UInt64(value) => Some((*value).into()),
-        Value::UInt128(value) => Some(*value),
-        _ => None,
-    }
-}
-
-fn signed(value: &Value<'_>) -> Option<i128> {
-    match value {
-        Value::Int8(value) => Some((*value).into()),
-        Value::Int16(value) => Some((*value).into()),
-        Value::Int32(value) => Some((*value).into()),
-        Value::Int64(value) => Some((*value).into()),
-        Value::Int128(value) => Some(*value),
-        _ => None,
-    }
-}
-
 pub fn values_to_series(
     name: PlSmallStr,
     schema: &SchemaSpec,
     values: Vec<Option<Value<'_>>>,
 ) -> PolarsResult<Series> {
-    macro_rules! unsigned_series {
-        ($ty:ty, $chunked:ty) => {{
+    macro_rules! integer_series {
+        ($variant:path, $chunked:ty) => {{
             let values = values
                 .iter()
                 .map(|value| match value {
                     None | Some(Value::Null) => Ok(None),
-                    Some(value) => unsigned(value)
-                        .and_then(|value| <$ty>::try_from(value).ok())
-                        .map(Some)
-                        .ok_or_else(|| type_error(value, schema)),
+                    Some($variant(value)) => Ok(Some(*value)),
+                    Some(value) => Err(type_error(value, schema)),
                 })
-                .collect::<PolarsResult<Vec<Option<$ty>>>>()?;
-            Ok(<$chunked>::from_iter_options(name, values.into_iter()).into_series())
-        }};
-    }
-
-    macro_rules! signed_series {
-        ($ty:ty, $chunked:ty) => {{
-            let values = values
-                .iter()
-                .map(|value| match value {
-                    None | Some(Value::Null) => Ok(None),
-                    Some(value) => signed(value)
-                        .and_then(|value| <$ty>::try_from(value).ok())
-                        .map(Some)
-                        .ok_or_else(|| type_error(value, schema)),
-                })
-                .collect::<PolarsResult<Vec<Option<$ty>>>>()?;
+                .collect::<PolarsResult<Vec<_>>>()?;
             Ok(<$chunked>::from_iter_options(name, values.into_iter()).into_series())
         }};
     }
@@ -501,16 +410,16 @@ pub fn values_to_series(
             )
             .into_series())
         }
-        SchemaSpec::UInt8 => unsigned_series!(u8, UInt8Chunked),
-        SchemaSpec::UInt16 => unsigned_series!(u16, UInt16Chunked),
-        SchemaSpec::UInt32 => unsigned_series!(u32, UInt32Chunked),
-        SchemaSpec::UInt64 => unsigned_series!(u64, UInt64Chunked),
-        SchemaSpec::UInt128 => unsigned_series!(u128, UInt128Chunked),
-        SchemaSpec::Int8 => signed_series!(i8, Int8Chunked),
-        SchemaSpec::Int16 => signed_series!(i16, Int16Chunked),
-        SchemaSpec::Int32 => signed_series!(i32, Int32Chunked),
-        SchemaSpec::Int64 => signed_series!(i64, Int64Chunked),
-        SchemaSpec::Int128 => signed_series!(i128, Int128Chunked),
+        SchemaSpec::UInt8 => integer_series!(Value::UInt8, UInt8Chunked),
+        SchemaSpec::UInt16 => integer_series!(Value::UInt16, UInt16Chunked),
+        SchemaSpec::UInt32 => integer_series!(Value::UInt32, UInt32Chunked),
+        SchemaSpec::UInt64 => integer_series!(Value::UInt64, UInt64Chunked),
+        SchemaSpec::UInt128 => integer_series!(Value::UInt128, UInt128Chunked),
+        SchemaSpec::Int8 => integer_series!(Value::Int8, Int8Chunked),
+        SchemaSpec::Int16 => integer_series!(Value::Int16, Int16Chunked),
+        SchemaSpec::Int32 => integer_series!(Value::Int32, Int32Chunked),
+        SchemaSpec::Int64 => integer_series!(Value::Int64, Int64Chunked),
+        SchemaSpec::Int128 => integer_series!(Value::Int128, Int128Chunked),
         SchemaSpec::Float32 => {
             let values = values.iter().map(|value| match value {
                 None | Some(Value::Null) => Ok(None),
@@ -526,7 +435,6 @@ pub fn values_to_series(
         SchemaSpec::Float64 => {
             let values = values.iter().map(|value| match value {
                 None | Some(Value::Null) => Ok(None),
-                Some(Value::Float32(value)) => Ok(Some((*value).into())),
                 Some(Value::Float64(value)) => Ok(Some(*value)),
                 Some(value) => Err(type_error(value, schema)),
             });
@@ -565,10 +473,13 @@ pub fn values_to_series(
     }
 }
 
+// Decoders convert each value to the variant for its dtype before it gets
+// here, so a different variant is a bug in this library, not in the database.
 fn type_error(value: &Value<'_>, schema: &SchemaSpec) -> PolarsError {
     polars_err!(
         ComputeError:
-        "MMDB value of type {} does not match requested dtype {}",
+        "internal error: the decoder returned a {} value for dtype {}. \
+         Please report this bug to maxminddb-polars",
         value.kind(),
         schema.to_polars()
     )
@@ -651,16 +562,24 @@ fn list_series(
     Ok(builder.finish().into_series())
 }
 
+fn out_of_range<T: IntegerDtype, E: serde::de::Error>(value: impl fmt::Display) -> E {
+    E::custom(format_args!(
+        "MMDB value {value} does not fit in requested dtype {}",
+        T::SCHEMA.to_polars()
+    ))
+}
+
+/// Reports a string where a number was expected.
+///
+/// The default error copies the stored string, which can be any length.
+fn string_type_error<E: serde::de::Error>(expected: &dyn Expected) -> E {
+    E::invalid_type(Unexpected::Other("string"), expected)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn field(name: &str, dtype: SchemaSpec) -> SchemaField {
-        SchemaField {
-            name: name.to_owned(),
-            dtype,
-        }
-    }
+    use crate::schema::field;
 
     #[test]
     fn projects_declared_shape_and_defaults_missing_containers() {
@@ -680,7 +599,10 @@ mod tests {
                 ),
             ],
         };
-        let projected = project_value(&Value::Map(Vec::new()), &schema).unwrap();
+        let empty = serde::de::value::MapDeserializer::<_, serde::de::value::Error>::new(
+            std::iter::empty::<(&str, u32)>(),
+        );
+        let projected = SchemaSeed(&schema).deserialize(empty).unwrap();
         assert_eq!(projected, default_value(&schema));
     }
 

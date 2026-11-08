@@ -165,14 +165,14 @@ fn render_path(path: &[PathPart]) -> String {
         .join("/")
 }
 
-fn field(name: &str, dtype: SchemaSpec) -> SchemaField {
+pub(crate) fn field(name: &str, dtype: SchemaSpec) -> SchemaField {
     SchemaField {
         name: name.to_owned(),
         dtype,
     }
 }
 
-fn struct_(fields: Vec<SchemaField>) -> SchemaSpec {
+pub(crate) fn struct_(fields: Vec<SchemaField>) -> SchemaSpec {
     SchemaSpec::Struct { fields }
 }
 
@@ -437,6 +437,20 @@ impl KnownRecord {
             "GeoIP2-Domain" => Some(Self::Domain),
             "GeoIP2-ASN" | "GeoLite2-ASN" => Some(Self::Asn),
             _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::City => "City",
+            Self::Country => "Country",
+            Self::Enterprise => "Enterprise",
+            Self::Isp => "ISP",
+            Self::ConnectionType => "Connection Type",
+            Self::AnonymousIp => "Anonymous IP",
+            Self::DensityIncome => "Density/Income",
+            Self::Domain => "Domain",
+            Self::Asn => "ASN",
         }
     }
 

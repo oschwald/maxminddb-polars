@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
-use maxminddb::{LookupResult, geoip2};
-use polars::prelude::*;
+use maxminddb::{LookupResult, MaxMindDbError, geoip2};
 
 use crate::schema::KnownRecord;
 use crate::value::Value;
@@ -9,40 +8,25 @@ use crate::value::Value;
 pub fn decode_known<'a>(
     result: &LookupResult<'a, Vec<u8>>,
     record: KnownRecord,
-) -> PolarsResult<Option<Value<'a>>> {
+) -> Result<Option<Value<'a>>, MaxMindDbError> {
     macro_rules! decode {
-        ($ty:ty, $convert:expr, $name:literal) => {
-            result
-                .decode::<$ty>()
-                .map_err(|error| {
-                    polars_err!(ComputeError: "could not decode {} record: {error}", $name)
-                })?
-                .map($convert)
+        ($ty:ty, $convert:expr) => {
+            result.decode::<$ty>()?.map($convert)
         };
     }
 
     Ok(match record {
-        KnownRecord::City => decode!(geoip2::City<'a>, city_record, "City"),
-        KnownRecord::Country => decode!(geoip2::Country<'a>, country_record, "Country"),
-        KnownRecord::Enterprise => {
-            decode!(geoip2::Enterprise<'a>, enterprise_record, "Enterprise")
+        KnownRecord::City => decode!(geoip2::City<'a>, city_record),
+        KnownRecord::Country => decode!(geoip2::Country<'a>, country_record),
+        KnownRecord::Enterprise => decode!(geoip2::Enterprise<'a>, enterprise_record),
+        KnownRecord::Isp => decode!(geoip2::Isp<'a>, isp_record),
+        KnownRecord::ConnectionType => {
+            decode!(geoip2::ConnectionType<'a>, connection_type_record)
         }
-        KnownRecord::Isp => decode!(geoip2::Isp<'a>, isp_record, "ISP"),
-        KnownRecord::ConnectionType => decode!(
-            geoip2::ConnectionType<'a>,
-            connection_type_record,
-            "Connection Type"
-        ),
-        KnownRecord::AnonymousIp => {
-            decode!(geoip2::AnonymousIp, anonymous_ip_record, "Anonymous IP")
-        }
-        KnownRecord::DensityIncome => decode!(
-            geoip2::DensityIncome,
-            density_income_record,
-            "Density/Income"
-        ),
-        KnownRecord::Domain => decode!(geoip2::Domain<'a>, domain_record, "Domain"),
-        KnownRecord::Asn => decode!(geoip2::Asn<'a>, asn_record, "ASN"),
+        KnownRecord::AnonymousIp => decode!(geoip2::AnonymousIp, anonymous_ip_record),
+        KnownRecord::DensityIncome => decode!(geoip2::DensityIncome, density_income_record),
+        KnownRecord::Domain => decode!(geoip2::Domain<'a>, domain_record),
+        KnownRecord::Asn => decode!(geoip2::Asn<'a>, asn_record),
     })
 }
 

@@ -50,6 +50,12 @@ jobs:
         run: |
           mkdir -p fuzz/corpus/projected_value fuzz/corpus/malformed_database
           cp tests/data/test-data/GeoIP2-City-Test.mmdb fuzz/corpus/projected_value/
+          cp tests/data/test-data/MaxMind-DB-test-decoder.mmdb fuzz/corpus/malformed_database/
+          for name in GeoIP2-City GeoIP2-Country GeoIP2-Enterprise GeoIP2-ISP \
+            GeoIP2-Domain GeoIP2-Anonymous-IP GeoLite2-ASN \
+            GeoIP2-Connection-Type GeoIP2-DensityIncome; do
+            cp "tests/data/test-data/$name-Test.mmdb" fuzz/corpus/malformed_database/
+          done
           find tests/data/bad-data -name '*.mmdb' -exec cp {} fuzz/corpus/malformed_database/ \;
       - name: Run bounded fuzz targets
         shell: bash

@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::net::IpAddr;
 
 use maxminddb::LookupResult;
+use maxminddb::geoip2::MAX_SUBDIVISIONS;
 use polars::prelude::*;
 use polars_arrow::array::Utf8ViewArray;
 use polars_arrow::bitmap::Bitmap;
@@ -15,8 +16,12 @@ use crate::cache::identity_for_path;
 use crate::cache::{CachedReader, DatabaseIdentity, reader_for};
 use crate::guard::catch_mmdb_unwind;
 use crate::known::decode_known;
-use crate::schema::{PathPart, SchemaSpec, resolve_path_dtype, resolve_record_dtype, to_mmdb_path};
-use crate::value::{Value, decode_projected_path, values_to_series, with_projected_schema};
+use crate::schema::{
+    KnownRecord, PathPart, SchemaSpec, resolve_path_dtype, resolve_record_dtype, to_mmdb_path,
+};
+use crate::value::{
+    Double, Integer, Value, decode_projected_path, values_to_series, with_projected_schema,
+};
 
 // Smaller batches do not repay Rayon scheduling and multi-chunk output costs.
 const PARALLEL_SCALAR_MIN_ROWS: usize = 8_192;
@@ -77,7 +82,10 @@ fn lookup_path_series_with_workers(
     let name = input.name().clone();
 
     macro_rules! primitive {
-        ($ty:ty, $chunked:ty) => {{
+        ($ty:ty, $chunked:ty) => {
+            primitive!($ty, $chunked, std::convert::identity)
+        };
+        ($ty:ty, $chunked:ty, $native:expr) => {{
             if ips.len() >= PARALLEL_SCALAR_MIN_ROWS && scalar_workers > 2 {
                 let chunk_name = name.clone();
                 let chunks = decode_scalar_chunks_parallel::<$ty, _, _>(
@@ -86,7 +94,10 @@ fn lookup_path_series_with_workers(
                     &path,
                     kwargs,
                     move |values| {
-                        <$chunked>::from_iter_options(chunk_name.clone(), values.into_iter())
+                        <$chunked>::from_iter_options(
+                            chunk_name.clone(),
+                            values.into_iter().map(|value| value.map($native)),
+                        )
                     },
                 )?;
                 let mut chunks = chunks.into_iter();
@@ -102,26 +113,32 @@ fn lookup_path_series_with_workers(
                     decode_scalar_values::<$ty>(ips, &reader, &path, kwargs)?;
                 let values = rows
                     .into_iter()
-                    .map(|row| row.and_then(|index| unique_values[index]));
+                    .map(|row| row.and_then(|index| unique_values[index]).map($native));
                 Ok(<$chunked>::from_iter_options(name, values).into_series())
             }
         }};
     }
 
+    macro_rules! integer {
+        ($ty:ty, $chunked:ty) => {
+            primitive!(Integer<$ty>, $chunked, |value: Integer<$ty>| value.0)
+        };
+    }
+
     match dtype {
         SchemaSpec::Boolean => primitive!(bool, BooleanChunked),
-        SchemaSpec::UInt8 => primitive!(u8, UInt8Chunked),
-        SchemaSpec::UInt16 => primitive!(u16, UInt16Chunked),
-        SchemaSpec::UInt32 => primitive!(u32, UInt32Chunked),
-        SchemaSpec::UInt64 => primitive!(u64, UInt64Chunked),
-        SchemaSpec::UInt128 => primitive!(u128, UInt128Chunked),
-        SchemaSpec::Int8 => primitive!(i8, Int8Chunked),
-        SchemaSpec::Int16 => primitive!(i16, Int16Chunked),
-        SchemaSpec::Int32 => primitive!(i32, Int32Chunked),
-        SchemaSpec::Int64 => primitive!(i64, Int64Chunked),
-        SchemaSpec::Int128 => primitive!(i128, Int128Chunked),
+        SchemaSpec::UInt8 => integer!(u8, UInt8Chunked),
+        SchemaSpec::UInt16 => integer!(u16, UInt16Chunked),
+        SchemaSpec::UInt32 => integer!(u32, UInt32Chunked),
+        SchemaSpec::UInt64 => integer!(u64, UInt64Chunked),
+        SchemaSpec::UInt128 => integer!(u128, UInt128Chunked),
+        SchemaSpec::Int8 => integer!(i8, Int8Chunked),
+        SchemaSpec::Int16 => integer!(i16, Int16Chunked),
+        SchemaSpec::Int32 => integer!(i32, Int32Chunked),
+        SchemaSpec::Int64 => integer!(i64, Int64Chunked),
+        SchemaSpec::Int128 => integer!(i128, Int128Chunked),
         SchemaSpec::Float32 => primitive!(f32, Float32Chunked),
-        SchemaSpec::Float64 => primitive!(f64, Float64Chunked),
+        SchemaSpec::Float64 => primitive!(Double, Float64Chunked, |value: Double| value.0),
         SchemaSpec::String => primitive!(&str, StringChunked),
         SchemaSpec::Binary => primitive!(&[u8], BinaryChunked),
         dtype => decode_nested_path_values(ips, &reader, &path, &dtype, kwargs),
@@ -152,11 +169,23 @@ pub fn lookup_record_series(
         );
     };
     let unique_values = guard_mmdb_operation(&kwargs.database, || {
-        batch
-            .unique
-            .iter()
-            .map(|result| decode_known(result, record))
-            .collect::<PolarsResult<Vec<_>>>()
+        // decode_known_record retries with the projected decoder, which reads
+        // this schema.
+        with_projected_schema(&dtype, || {
+            batch
+                .unique
+                .iter()
+                .map(|result| decode_known_record(result, record))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(|error| {
+            polars_err!(
+                ComputeError:
+                "could not decode {} record in {:?}: {error}",
+                record.name(),
+                kwargs.database.canonical_path
+            )
+        })
     })?;
     decoded_values_to_series(input.name().clone(), &unique_values, &batch.rows, &dtype)
 }
@@ -471,33 +500,35 @@ fn decode_leaf<'a>(
     dtype: &SchemaSpec,
 ) -> Result<Option<Value<'a>>, maxminddb::MaxMindDbError> {
     macro_rules! scalar {
-        ($ty:ty, $variant:path) => {
+        ($ty:ty, $convert:expr) => {
             result
                 .decode_path::<$ty>(path)
-                .map(|value| value.map($variant))
+                .map(|value| value.map($convert))
+        };
+    }
+
+    macro_rules! integer {
+        ($ty:ty, $variant:path) => {
+            scalar!(Integer<$ty>, |value: Integer<$ty>| $variant(value.0))
         };
     }
 
     match dtype {
         SchemaSpec::Boolean => scalar!(bool, Value::Boolean),
-        SchemaSpec::UInt8 => scalar!(u8, Value::UInt8),
-        SchemaSpec::UInt16 => scalar!(u16, Value::UInt16),
-        SchemaSpec::UInt32 => scalar!(u32, Value::UInt32),
-        SchemaSpec::UInt64 => scalar!(u64, Value::UInt64),
-        SchemaSpec::UInt128 => scalar!(u128, Value::UInt128),
-        SchemaSpec::Int8 => scalar!(i8, Value::Int8),
-        SchemaSpec::Int16 => scalar!(i16, Value::Int16),
-        SchemaSpec::Int32 => scalar!(i32, Value::Int32),
-        SchemaSpec::Int64 => scalar!(i64, Value::Int64),
-        SchemaSpec::Int128 => scalar!(i128, Value::Int128),
+        SchemaSpec::UInt8 => integer!(u8, Value::UInt8),
+        SchemaSpec::UInt16 => integer!(u16, Value::UInt16),
+        SchemaSpec::UInt32 => integer!(u32, Value::UInt32),
+        SchemaSpec::UInt64 => integer!(u64, Value::UInt64),
+        SchemaSpec::UInt128 => integer!(u128, Value::UInt128),
+        SchemaSpec::Int8 => integer!(i8, Value::Int8),
+        SchemaSpec::Int16 => integer!(i16, Value::Int16),
+        SchemaSpec::Int32 => integer!(i32, Value::Int32),
+        SchemaSpec::Int64 => integer!(i64, Value::Int64),
+        SchemaSpec::Int128 => integer!(i128, Value::Int128),
         SchemaSpec::Float32 => scalar!(f32, Value::Float32),
-        SchemaSpec::Float64 => scalar!(f64, Value::Float64),
-        SchemaSpec::String => result
-            .decode_path::<&'a str>(path)
-            .map(|value| value.map(|value| Value::String(Cow::Borrowed(value)))),
-        SchemaSpec::Binary => result
-            .decode_path::<&'a [u8]>(path)
-            .map(|value| value.map(|value| Value::Binary(Cow::Borrowed(value)))),
+        SchemaSpec::Float64 => scalar!(Double, |value: Double| Value::Float64(value.0)),
+        SchemaSpec::String => scalar!(&'a str, |value| Value::String(Cow::Borrowed(value))),
+        SchemaSpec::Binary => scalar!(&'a [u8], |value| Value::Binary(Cow::Borrowed(value))),
         SchemaSpec::List { .. } => decode_projected_path(result, path),
         SchemaSpec::Struct { .. } => unreachable!("Struct projections are flattened"),
     }
@@ -530,6 +561,91 @@ fn assemble_projection_series(
     Ok(StructChunked::from_series(name, length, children.iter())?
         .with_outer_validity(Some(validity.clone()))
         .into_series())
+}
+
+pub(crate) fn decode_known_record<'a>(
+    result: &LookupResult<'a, Vec<u8>>,
+    record: KnownRecord,
+) -> Result<Option<Value<'a>>, maxminddb::MaxMindDbError> {
+    // The typed record structs require the standard encoded types. A writer
+    // can pick another type that fits, such as uint16 for an ASN, so retry
+    // decoding errors with the projected decoder. Its error replaces the typed
+    // one because it applies the rules that custom dtypes use. Other errors,
+    // such as an invalid database or a resource limit, are returned as is.
+    match decode_known(result, record) {
+        Err(maxminddb::MaxMindDbError::Decoding { .. }) => decode_projected_record(result, record),
+        decoded => decoded,
+    }
+}
+
+/// Decodes a known record with the projected decoder.
+///
+/// The typed City and Enterprise structs reject more than `MAX_SUBDIVISIONS`
+/// subdivisions with a decoding error. Apply the same limit here, so a retry
+/// does not accept a record that the typed decode rejected. Check it before
+/// the projected decode, which would otherwise build every subdivision first.
+fn decode_projected_record<'a>(
+    result: &LookupResult<'a, Vec<u8>>,
+    record: KnownRecord,
+) -> Result<Option<Value<'a>>, maxminddb::MaxMindDbError> {
+    if matches!(record, KnownRecord::City | KnownRecord::Enterprise) {
+        check_subdivision_count(result)?;
+    }
+    decode_projected_path(result, &[])
+}
+
+fn check_subdivision_count(
+    result: &LookupResult<'_, Vec<u8>>,
+) -> Result<(), maxminddb::MaxMindDbError> {
+    match result.decode_path::<SubdivisionCount>(&[maxminddb::PathElement::Key("subdivisions")]) {
+        Ok(Some(SubdivisionCount(count))) if count > MAX_SUBDIVISIONS => {
+            Err(maxminddb::MaxMindDbError::decoding(format!(
+                "subdivisions exceeds maximum length of {MAX_SUBDIVISIONS}"
+            )))
+        }
+        // The projected decode reports a subdivisions value that is not an
+        // array, with the same error that custom dtypes get.
+        Ok(_) | Err(maxminddb::MaxMindDbError::Decoding { .. }) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// The length of an MMDB array, up to one more than `MAX_SUBDIVISIONS`.
+struct SubdivisionCount(usize);
+
+impl<'de> Deserialize<'de> for SubdivisionCount {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(SubdivisionCountVisitor)
+    }
+}
+
+struct SubdivisionCountVisitor;
+
+impl<'de> serde::de::Visitor<'de> for SubdivisionCountVisitor {
+    type Value = SubdivisionCount;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("an MMDB array")
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        if let Some(count) = sequence.size_hint() {
+            return Ok(SubdivisionCount(count));
+        }
+        let mut count = 0;
+        while count <= MAX_SUBDIVISIONS
+            && sequence.next_element::<serde::de::IgnoredAny>()?.is_some()
+        {
+            count += 1;
+        }
+        Ok(SubdivisionCount(count))
+    }
 }
 
 fn decoded_values_to_series(
@@ -635,6 +751,38 @@ mod tests {
 
     fn series(values: &[Option<&str>]) -> Series {
         StringChunked::from_iter_options("ip".into(), values.iter().copied()).into_series()
+    }
+
+    // A batch can mix typed and projected records, and values_to_series
+    // accepts only the exact Value variant of each dtype. Both decoders must
+    // give the same Value for every record.
+    #[test]
+    fn typed_and_projected_decoders_agree_on_known_fixtures() {
+        let mut checked = std::collections::BTreeSet::new();
+        for entry in fs::read_dir("tests/data/test-data").unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_str().unwrap();
+            let standard = name.starts_with("GeoIP2-") || name.starts_with("GeoLite2-");
+            if !standard || name.contains("Broken") || name.contains("Invalid") {
+                continue;
+            }
+            let reader = Reader::open_readfile(&path).unwrap();
+            let Some(record) = KnownRecord::from_database_type(&reader.metadata().database_type)
+            else {
+                continue;
+            };
+            let schema = record.schema();
+            for network in reader.networks(Default::default()).unwrap() {
+                let result = network.unwrap();
+                let typed = decode_known(&result, record).unwrap();
+                let projected =
+                    with_projected_schema(&schema, || decode_projected_path(&result, &[])).unwrap();
+                assert_eq!(typed, projected, "{name}");
+                checked.insert(record.name());
+            }
+        }
+        // One fixture for each KnownRecord.
+        assert_eq!(checked.len(), 9, "{checked:?}");
     }
 
     #[test]
@@ -792,6 +940,51 @@ mod tests {
         assert_eq!(parallel.n_chunks(), 4);
         assert_eq!(two_workers.n_chunks(), 1);
         assert_eq!(below_threshold.n_chunks(), 1);
+    }
+
+    #[test]
+    fn unsigned_conversion_preserves_scalar_dispatch_thresholds() {
+        let mut kwargs = LookupPathKwargs {
+            database: identity("tests/data/test-data/MaxMind-DB-test-decoder.mmdb"),
+            path: vec![PathPart::Key("array".to_owned()), PathPart::Index(0)],
+            dtype: Some(SchemaSpec::UInt16),
+            strict: false,
+        };
+        let candidates = [
+            Some("::1.1.1.0"),
+            None,
+            Some("not-an-ip"),
+            Some("2001:db8::1"),
+        ];
+        let values = (0..PARALLEL_SCALAR_MIN_ROWS + 1)
+            .map(|index| candidates[index % candidates.len()])
+            .collect::<Vec<_>>();
+        let input = series(&values);
+        let parallel =
+            lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 3).unwrap();
+        let serial =
+            lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, 2).unwrap();
+        let below = lookup_path_series_with_workers(
+            &[input.slice(0, PARALLEL_SCALAR_MIN_ROWS - 1)],
+            &kwargs,
+            3,
+        )
+        .unwrap();
+        assert!(parallel.equals_missing(&serial));
+        assert_eq!(parallel.u16().unwrap().get(0), Some(1));
+        assert_eq!(
+            parallel.n_chunks(),
+            (PARALLEL_SCALAR_MIN_ROWS + 1).div_ceil(PARALLEL_SCALAR_MAX_CHUNK_ROWS)
+        );
+        assert_eq!(serial.n_chunks(), 1);
+        assert_eq!(below.n_chunks(), 1);
+        kwargs.path = vec![PathPart::Key("uint32".to_owned())];
+        for workers in [2, 3] {
+            let error =
+                lookup_path_series_with_workers(std::slice::from_ref(&input), &kwargs, workers)
+                    .unwrap_err();
+            assert!(error.to_string().contains("could not decode MMDB"));
+        }
     }
 
     #[test]
