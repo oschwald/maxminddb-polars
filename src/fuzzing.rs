@@ -10,9 +10,9 @@ use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
 use crate::guard::catch_mmdb_unwind;
-use crate::lookup::{LookupPathKwargs, LookupRecordKwargs};
+use crate::lookup::{LookupPathKwargs, LookupRecordKwargs, decode_known_record};
 use crate::schema::{
-    PathPart, SchemaSpec, dtype_at_path, field, known_schema, struct_, to_mmdb_path,
+    KnownRecord, PathPart, SchemaSpec, dtype_at_path, field, known_schema, struct_, to_mmdb_path,
 };
 use crate::value::{decode_projected_path, with_projected_schema};
 
@@ -94,6 +94,12 @@ pub fn malformed_database(data: &[u8]) {
         };
         let results: Vec<_> = [
             IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
+            // Records in the City, Country, Enterprise, ISP, Domain,
+            // Anonymous IP, ASN, Connection Type, and Density/Income seeds.
+            IpAddr::V4(Ipv4Addr::new(81, 2, 69, 160)),
+            IpAddr::V4(Ipv4Addr::new(89, 160, 20, 128)),
+            IpAddr::V4(Ipv4Addr::new(1, 0, 0, 1)),
+            IpAddr::V4(Ipv4Addr::new(5, 83, 124, 1)),
             IpAddr::V6(Ipv6Addr::LOCALHOST),
         ]
         .into_iter()
@@ -106,6 +112,15 @@ pub fn malformed_database(data: &[u8]) {
             with_projected_schema(schema, || {
                 for result in &results {
                     let _ = decode_projected_path(result, &[]);
+                }
+            });
+        }
+        // Decode whole records as a lookup on this database type does, which
+        // retries typed decoding errors with the projected decoder.
+        if let Some(record) = KnownRecord::from_database_type(&reader.metadata().database_type) {
+            with_projected_schema(&record.schema(), || {
+                for result in &results {
+                    let _ = decode_known_record(result, record);
                 }
             });
         }

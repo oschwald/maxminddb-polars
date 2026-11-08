@@ -35,7 +35,8 @@ Four `cargo-fuzz` targets live under `fuzz/`:
   indexes.
 - `projected_value` covers schema-guided decoding from mutated City databases.
 - `malformed_database` covers reader creation, IPv4/IPv6 search, a walk of
-  every value, and schema-guided decoding with integer and float conversions.
+  every value, schema-guided decoding with integer and float conversions, and
+  whole-record decoding for standard database types.
 
 Install the `cargo-fuzz` version pinned by
 [`fuzz.yml`](../.github/workflows/fuzz.yml) and use a nightly Rust toolchain:

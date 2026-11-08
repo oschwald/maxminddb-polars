@@ -563,7 +563,7 @@ fn assemble_projection_series(
         .into_series())
 }
 
-fn decode_known_record<'a>(
+pub(crate) fn decode_known_record<'a>(
     result: &LookupResult<'a, Vec<u8>>,
     record: KnownRecord,
 ) -> Result<Option<Value<'a>>, maxminddb::MaxMindDbError> {
