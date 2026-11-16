@@ -3681,9 +3681,9 @@ dependencies = [
 
 [[package]]
 name = "zstd-safe"
-version = "7.4.0"
+version = "7.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c8ea04668f5de8d8d51051714ba560c9536519cadcdb8829bba4fe2ad159b03"
+checksum = "498d94ad68720c89b4fbe41b9090850651e68cb2dd9210ce7ffbff3a94653819"
 dependencies = [
  "zstd-sys",
 ]
