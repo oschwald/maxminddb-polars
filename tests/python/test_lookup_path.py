@@ -365,3 +365,35 @@ def test_rejects_wrong_input_and_explicit_dtype() -> None:
     )
     with pytest.raises(pl.exceptions.ComputeError, match="does not match"):
         query.collect_schema()
+
+
+@pytest.mark.parametrize(
+    "input_series",
+    [
+        pl.Series(["89.160.20.128"], dtype=pl.Categorical),
+        pl.Series(["89.160.20.128"], dtype=pl.Enum(["89.160.20.128"])),
+        pl.Series([1], dtype=pl.Decimal(10, 2)),
+        pl.Series([1.0], dtype=pl.Float16),
+        pl.Series([["89.160.20.128"]], dtype=pl.Array(pl.String, 1)),
+        pl.Series([1], dtype=pl.Int64),
+        pl.Series([b"89.160.20.128"], dtype=pl.Binary),
+        pl.Series([None], dtype=pl.Date),
+        pl.Series([["89.160.20.128"]], dtype=pl.List(pl.String)),
+    ],
+    ids=lambda series: str(series.dtype),
+)
+@pytest.mark.parametrize("function", ["lookup", "lookup_path"])
+def test_rejects_non_string_input_dtypes(
+    input_series: pl.Series, function: Literal["lookup", "lookup_path"]
+) -> None:
+    frame = pl.DataFrame({"ip": input_series})
+    expression = (
+        mmp.lookup("ip", CITY_DB)
+        if function == "lookup"
+        else mmp.lookup_path("ip", CITY_DB, ["country", "iso_code"])
+    )
+
+    with pytest.raises(pl.exceptions.ComputeError, match="must have String dtype"):
+        frame.lazy().select(expression).collect_schema()
+    with pytest.raises(pl.exceptions.ComputeError, match="must have String dtype"):
+        frame.select(expression)

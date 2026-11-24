@@ -54,6 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns null instead of failing the whole query. With `strict=True`, the
   default, it still raises an error. The documentation now describes both
   cases.
+- Categorical, Enum, Decimal, Float16, and Array input columns now raise
+  `MMDB lookup input must have String dtype`, like other non-String columns.
+  They previously made the plugin panic with only `the plugin panicked`.
 
 ## [0.4.0] - 2026-11-07
 

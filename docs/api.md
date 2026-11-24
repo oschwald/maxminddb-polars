@@ -16,10 +16,12 @@ def lookup(
 ) -> pl.Expr: ...
 ```
 
-`expr` must resolve to a Polars String column. Set `database` to the path of
-your MMDB file. For standard databases, `lookup` infers the full Struct dtype
-from metadata. Pass `dtype` to read selected fields. Custom databases require
-`dtype`. See [Custom and partial schemas](custom-schemas.md).
+`expr` must resolve to a Polars String column. Other dtypes raise
+`MMDB lookup input must have String dtype`. Cast a Categorical or Enum column
+with `.cast(pl.String)` first. Set `database` to the path of your MMDB file.
+For standard databases, `lookup` infers the full Struct dtype from metadata.
+Pass `dtype` to read selected fields. Custom databases require `dtype`. See
+[Custom and partial schemas](custom-schemas.md).
 
 The equivalent namespace method is
 `pl.col("ip").mmdb.lookup(database, dtype=dtype, strict=strict)`.
