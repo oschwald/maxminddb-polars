@@ -94,7 +94,6 @@ jobs:
           cargo metadata --manifest-path fuzz/Cargo.toml --locked
           --format-version 1 --no-deps >/dev/null
       - run: uv lock --check
-      - run: test "$(git -C tests/data rev-parse HEAD)" = "19041451b6bc63850c1e22f6d2056e55c36f0bb6"
       - run: git diff --exit-code
 
   rustdoc:

@@ -224,7 +224,6 @@ jobs:
         run: |
           cargo metadata --locked --format-version 1 --no-deps >/dev/null
           uv lock --check
-          test "$(git -C tests/data rev-parse HEAD)" = "19041451b6bc63850c1e22f6d2056e55c36f0bb6"
           git diff --exit-code
       - run: python -m pip install twine==7.0.0
       - run: python -m twine check --strict dist/*

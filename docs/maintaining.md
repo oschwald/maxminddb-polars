@@ -14,7 +14,9 @@ or publishing changes.
 - The [compatibility](../.github/workflows/compatibility.yml) and
   [artifact](../.github/workflows/artifacts.yml) workflows define the tested
   Python/Polars versions and platforms.
-- `tests/data` pins the fixtures. `scripts/check` and metadata CI verify the revision.
+- The `tests/data` gitlink pins the fixtures, so review fixture updates through
+  the gitlink change in the pull request. `scripts/check` verifies that the
+  local submodule checkout matches the staged gitlink.
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases) describes the release helper.
 
 ## GitHub settings
@@ -75,21 +77,21 @@ API cannot verify these account settings.
 
 ## Temporary security exceptions
 
-The ignored advisories and review deadline are in
-[`.cargo/audit.toml`](../.cargo/audit.toml):
+[`.cargo/audit.toml`](../.cargo/audit.toml) lists every ignored advisory,
+why it is ignored, and the review deadline. Treat that file as the source of
+truth rather than repeating the list here.
 
-- [`bincode` is unmaintained](https://rustsec.org/advisories/RUSTSEC-2025-0141.html)
-  and is required transitively by Polars.
-- The [`quick-xml` attribute-checking](https://rustsec.org/advisories/RUSTSEC-2026-0194.html)
-  and [namespace-allocation](https://rustsec.org/advisories/RUSTSEC-2026-0195.html)
-  advisories concern a dependency locked through disabled Polars cloud features.
-  It is absent from the configured build targets, and the plugin does not parse
-  XML. Recheck that assumption for both workspaces when changing dependencies:
+Some exceptions cover dependencies that are locked only through disabled Polars
+cloud features, such as `quick-xml` and `humantime`. Recheck that they are
+absent from the configured build targets in both workspaces when changing
+dependencies:
 
-  ```console
-  cargo tree --locked --target all -i quick-xml
-  cargo tree --locked --manifest-path fuzz/Cargo.toml --target all -i quick-xml
-  ```
+```console
+cargo tree --locked --all-features --target all -i quick-xml
+cargo tree --locked --manifest-path fuzz/Cargo.toml --target all -i quick-xml
+cargo tree --locked --all-features --target all -i humantime
+cargo tree --locked --manifest-path fuzz/Cargo.toml --target all -i humantime
+```
 
 Review exceptions when Polars dependencies change and before the audit deadline.
 Remove resolved advisories from the active exception list.

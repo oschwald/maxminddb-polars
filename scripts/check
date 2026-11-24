@@ -20,5 +20,7 @@ cargo metadata --locked --format-version 1 --no-deps >/dev/null
 cargo metadata --manifest-path fuzz/Cargo.toml --locked --format-version 1 --no-deps \
     >/dev/null
 uv lock --check
-test "$(git -C tests/data rev-parse HEAD)" = \
-    "19041451b6bc63850c1e22f6d2056e55c36f0bb6"
+if [ "$(git -C tests/data rev-parse HEAD)" != "$(git rev-parse :tests/data)" ]; then
+    echo "tests/data does not match the staged gitlink; run git submodule update" >&2
+    exit 1
+fi
