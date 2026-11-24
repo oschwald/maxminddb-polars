@@ -39,6 +39,8 @@ jobs:
     name: Wheel (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 75
+    env:
+      SMOKE_POLARS_VERSIONS: 1.43.2 1.44.1 1.44.2 2.0.0 2.1.0
     strategy:
       fail-fast: false
       matrix:
@@ -49,20 +51,22 @@ jobs:
             manylinux: auto
             smoke: true
           - platform: manylinux-aarch64
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             target: aarch64
             manylinux: auto
-            smoke: false
+            smoke: true
           - platform: musllinux-x86_64
             os: ubuntu-latest
             target: x86_64
             manylinux: musllinux_1_2
-            smoke: false
+            smoke: true
+            smoke-image: python:3.13-alpine@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e
           - platform: musllinux-aarch64
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             target: aarch64
             manylinux: musllinux_1_2
-            smoke: false
+            smoke: true
+            smoke-image: python:3.13-alpine@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e
           - platform: macos-x86_64
             os: macos-15-intel
             target: x86_64
@@ -86,24 +90,42 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-        if: runner.os == 'Linux' && matrix.target == 'aarch64'
-        with:
-          platforms: arm64
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           args: --release --locked --out dist
       - name: Smoke-test native wheel
-        if: matrix.smoke
+        if: matrix.smoke && !matrix.smoke-image
         shell: bash
         run: |
           python -m pip install --no-index --no-deps dist/*.whl
-          for polars_version in 1.43.2 1.44.1 1.44.2 2.0.0 2.1.0; do
-            python -m pip install "polars==$polars_version"
+          for polars_version in $SMOKE_POLARS_VERSIONS; do
+            python -m pip install --only-binary :all: "polars==$polars_version"
             python scripts/smoke_wheel.py
           done
+      # musllinux wheels cannot load on the glibc runner, so install them into a
+      # musl Python image on a runner of the same architecture.
+      - name: Smoke-test musllinux wheel
+        if: matrix.smoke && matrix.smoke-image
+        shell: bash
+        env:
+          SMOKE_IMAGE: ${{ matrix.smoke-image }}
+        run: |
+          docker run --rm \
+            --env SMOKE_POLARS_VERSIONS \
+            --env PIP_DISABLE_PIP_VERSION_CHECK=1 \
+            --env PIP_ROOT_USER_ACTION=ignore \
+            --volume "$PWD:/src:ro" \
+            --workdir /src \
+            "$SMOKE_IMAGE" \
+            sh -euc '
+              python -m pip install --no-index --no-deps dist/*.whl
+              for polars_version in $SMOKE_POLARS_VERSIONS; do
+                python -m pip install --only-binary :all: "polars==$polars_version"
+                python scripts/smoke_wheel.py
+              done
+            '
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wheel-${{ matrix.platform }}
