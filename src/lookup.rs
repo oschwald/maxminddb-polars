@@ -301,6 +301,11 @@ fn lookup_one<'a>(
             )
         }
     };
+    // An IPv4-only database has no records for IPv6 addresses. Treat them like
+    // invalid input: null with strict=False, and an error otherwise.
+    if !strict && ip.is_ipv6() && reader.metadata().ip_version == 4 {
+        return Ok(None);
+    }
     reader.lookup(ip).map(Some).map_err(|error| {
         polars_err!(
             ComputeError:
@@ -813,6 +818,55 @@ mod tests {
 
         let output = lookup_path_series(&[input], &kwargs(false)).unwrap();
         assert_eq!(output.null_count(), 1);
+    }
+
+    #[test]
+    fn ipv6_on_ipv4_only_database_errors_when_strict_and_is_null_otherwise() {
+        let kwargs = |strict| LookupPathKwargs {
+            database: identity("tests/data/test-data/MaxMind-DB-test-ipv4-24.mmdb"),
+            path: vec![PathPart::Key("ip".to_owned())],
+            dtype: Some(SchemaSpec::String),
+            strict,
+        };
+        let input = series(&[Some("1.1.1.1"), Some("2001::1"), Some("::ffff:1.1.1.1")]);
+
+        let error = lookup_path_series(std::slice::from_ref(&input), &kwargs(true)).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("cannot look up IPv6 address in IPv4-only database"),
+            "{error}"
+        );
+
+        // The crate also rejects IPv4-mapped IPv6 addresses, so strict mode
+        // and the strict=False null must agree for them too.
+        let mapped = series(&[Some("::ffff:1.1.1.1")]);
+        let error = lookup_path_series(&[mapped], &kwargs(true)).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("cannot look up IPv6 address in IPv4-only database"),
+            "{error}"
+        );
+
+        let output = lookup_path_series(&[input], &kwargs(false)).unwrap();
+        assert_eq!(
+            output.str().unwrap().iter().collect::<Vec<_>>(),
+            vec![Some("1.1.1.1"), None, None]
+        );
+
+        let candidates = [Some("1.1.1.1"), Some("2001::1"), None];
+        let inputs = (0..PARALLEL_SCALAR_MIN_ROWS + 3)
+            .map(|index| candidates[index % candidates.len()])
+            .collect::<Vec<_>>();
+        let output =
+            lookup_path_series_with_workers(&[series(&inputs)], &kwargs(false), 4).unwrap();
+        let expected = inputs
+            .iter()
+            .map(|value| value.filter(|ip| !ip.contains(':')))
+            .collect::<Vec<_>>();
+        assert!(output.chunks().len() > 1);
+        assert_eq!(output.str().unwrap().iter().collect::<Vec<_>>(), expected);
     }
 
     #[test]

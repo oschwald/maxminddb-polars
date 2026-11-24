@@ -35,8 +35,9 @@ Pass `dtype` to read only selected fields or use a custom database. See
 [Custom and partial schemas](https://github.com/oschwald/maxminddb-polars/blob/main/docs/custom-schemas.md).
 
 The IP column must have String dtype. Null inputs, lookup misses, and missing
-paths return null. Invalid IP strings raise an error by default. Pass
-`strict=False` to turn them into nulls. Database and schema errors still raise.
+paths return null. Invalid IP strings, and IPv6 addresses in an IPv4-only
+database, raise an error by default. Pass `strict=False` to turn them into
+nulls. Database and schema errors still raise.
 
 To update a database, replace the file atomically and create new expressions.
 See [Database updates](https://github.com/oschwald/maxminddb-polars/blob/main/docs/api.md#database-updates)

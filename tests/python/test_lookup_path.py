@@ -284,6 +284,31 @@ def test_slice_is_pushed_below_lookup(
     }
 
 
+def test_ipv6_on_ipv4_only_database_strictness() -> None:
+    ipv4_db = DATA / "MaxMind-DB-test-ipv4-24.mmdb"
+    frame = pl.DataFrame({"ip": ["1.1.1.1", "2001::1", "::ffff:1.1.1.1", None]})
+    for expression in (
+        mmp.lookup_path("ip", ipv4_db, ["ip"], dtype=pl.String),
+        mmp.lookup("ip", ipv4_db, dtype=pl.Struct({"ip": pl.String})),
+    ):
+        with pytest.raises(
+            pl.exceptions.ComputeError,
+            match="cannot look up IPv6 address in IPv4-only database",
+        ):
+            frame.select(expression)
+
+    result = frame.select(
+        path=mmp.lookup_path("ip", ipv4_db, ["ip"], dtype=pl.String, strict=False),
+        record=mmp.lookup(
+            "ip", ipv4_db, dtype=pl.Struct({"ip": pl.String}), strict=False
+        ),
+    )
+    assert result.to_dict(as_series=False) == {
+        "path": ["1.1.1.1", None, None, None],
+        "record": [{"ip": "1.1.1.1"}, None, None, None],
+    }
+
+
 @pytest.mark.parametrize(
     ("path", "error", "match"),
     [
