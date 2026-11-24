@@ -130,15 +130,23 @@ Replace the MMDB file atomically and create a new expression to use the update.
 Schema planning and execution share a cached snapshot of the database bytes.
 If an in-place change is detected while opening the file, the lookup fails.
 
-The process-wide cache retains up to 512 MiB by default, evicting the oldest
-snapshots first. Set `MAXMINDDB_POLARS_CACHE_MAX_BYTES` before the first lookup
-to change the limit. It accepts a non-negative byte count. The cache always
-retains the newest snapshot, even if that snapshot exceeds the limit.
+The process-wide cache retains up to 512 MiB by default, evicting the least
+recently used snapshots first. Set `MAXMINDDB_POLARS_CACHE_MAX_BYTES` before the
+first lookup to change the limit. It accepts a non-negative byte count. The cache
+always retains the snapshot it most recently opened or reused, even if that
+snapshot exceeds the limit.
 
-An existing expression uses its old snapshot while it remains cached. After
-eviction, it reopens the unchanged file or raises an error asking you to recreate
-the expression. Running evaluations keep their snapshots until they finish.
-Those snapshots and output arrays can use memory beyond the cache limit.
+An existing expression uses its old snapshot while it remains cached. Running
+evaluations keep their snapshots until they finish, and lookups reuse an evicted
+snapshot while any evaluation still holds it. Once no evaluation holds it, the
+expression reopens the unchanged file or raises an error asking you to recreate
+the expression. Those snapshots and output arrays can use memory beyond the cache
+limit.
+
+Set the limit high enough to hold every database that one query uses. Streaming
+queries look up each batch separately. When the databases in a query do not fit,
+batches that do not overlap can evict each other's snapshots and read the files
+again.
 
 Snapshots are identified by the canonical path, size, nanosecond modification
 time, metadata-change or creation time, and file identity. Unix detects

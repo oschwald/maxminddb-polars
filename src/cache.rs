@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, LazyLock, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError, RwLock, Weak};
 use std::time::UNIX_EPOCH;
 
 use maxminddb::Reader;
@@ -29,38 +29,152 @@ pub struct DatabaseIdentity {
 const DEFAULT_CACHE_MAX_BYTES: usize = 512 * 1024 * 1024;
 const CACHE_MAX_BYTES_ENV: &str = "MAXMINDDB_POLARS_CACHE_MAX_BYTES";
 
+struct CacheEntry {
+    reader: Arc<CachedReader>,
+    // Updated under the shared lock so cache hits do not need the write lock.
+    last_used: AtomicU64,
+}
+
 #[derive(Default)]
 struct ReaderCache {
-    readers: HashMap<DatabaseIdentity, Arc<CachedReader>>,
-    insertion_order: VecDeque<DatabaseIdentity>,
+    readers: HashMap<DatabaseIdentity, CacheEntry>,
+    // Readers evicted while a running evaluation may still hold them. Reusing
+    // a live one avoids reading the same file again while it is in memory.
+    evicted: HashMap<DatabaseIdentity, Weak<CachedReader>>,
     bytes: usize,
+    clock: AtomicU64,
 }
 
 impl ReaderCache {
-    fn insert(&mut self, identity: DatabaseIdentity, reader: Arc<CachedReader>, max_bytes: usize) {
-        let reader_bytes = usize::try_from(identity.size).unwrap_or(usize::MAX);
-        self.bytes = self.bytes.saturating_add(reader_bytes);
-        self.insertion_order.push_back(identity.clone());
-        self.readers.insert(identity.clone(), reader);
+    fn tick(&self) -> u64 {
+        self.clock.fetch_add(1, Ordering::Relaxed) + 1
+    }
 
-        while self.bytes > max_bytes && self.readers.len() > 1 {
-            let Some(oldest) = self.insertion_order.pop_front() else {
-                break;
-            };
-            if oldest == identity {
-                self.insertion_order.push_back(oldest);
+    /// Returns a cached reader, or an evicted reader that a running evaluation
+    /// still holds. The flag is true for an evicted reader.
+    fn get(&self, identity: &DatabaseIdentity) -> Option<(Arc<CachedReader>, bool)> {
+        if let Some(entry) = self.readers.get(identity) {
+            entry.last_used.fetch_max(self.tick(), Ordering::Relaxed);
+            return Some((Arc::clone(&entry.reader), false));
+        }
+        let reader = self.evicted.get(identity)?.upgrade()?;
+        Some((reader, true))
+    }
+
+    /// Caches an evicted reader again, unless another lookup already did.
+    fn revive(&mut self, identity: &DatabaseIdentity, reader: Arc<CachedReader>, max_bytes: usize) {
+        if !self.readers.contains_key(identity) {
+            self.insert(identity.clone(), reader, max_bytes);
+        }
+    }
+
+    fn insert(&mut self, identity: DatabaseIdentity, reader: Arc<CachedReader>, max_bytes: usize) {
+        self.evicted.remove(&identity);
+        self.evicted.retain(|_, reader| reader.strong_count() > 0);
+
+        let entry = CacheEntry {
+            reader,
+            last_used: AtomicU64::new(self.tick()),
+        };
+        if self.readers.insert(identity.clone(), entry).is_none() {
+            self.bytes = self.bytes.saturating_add(identity_bytes(&identity));
+        }
+
+        if self.bytes <= max_bytes {
+            return;
+        }
+        // Evict the least recently used readers, but always keep this one.
+        let mut candidates = self
+            .readers
+            .iter()
+            .filter(|(candidate, _)| **candidate != identity)
+            .map(|(candidate, entry)| (entry.last_used.load(Ordering::Relaxed), candidate.clone()))
+            .collect::<Vec<_>>();
+        candidates.sort_unstable_by_key(|(last_used, _)| *last_used);
+        for (_, oldest) in candidates {
+            if self.bytes <= max_bytes {
                 break;
             }
-            if self.readers.remove(&oldest).is_some() {
-                let oldest_bytes = usize::try_from(oldest.size).unwrap_or(usize::MAX);
-                self.bytes = self.bytes.saturating_sub(oldest_bytes);
+            if let Some(entry) = self.readers.remove(&oldest) {
+                self.bytes = self.bytes.saturating_sub(identity_bytes(&oldest));
+                if Arc::strong_count(&entry.reader) > 1 {
+                    self.evicted.insert(oldest, Arc::downgrade(&entry.reader));
+                }
             }
+        }
+    }
+}
+
+fn identity_bytes(identity: &DatabaseIdentity) -> usize {
+    usize::try_from(identity.size).unwrap_or(usize::MAX)
+}
+
+/// One lock per snapshot being opened, so concurrent lookups share a single
+/// read of the file without blocking lookups against other databases.
+#[derive(Default)]
+struct OpenLocks {
+    locks: Mutex<HashMap<DatabaseIdentity, Arc<Mutex<()>>>>,
+}
+
+impl OpenLocks {
+    fn acquire(&self, identity: &DatabaseIdentity) -> OpenLockHandle<'_> {
+        let lock = Arc::clone(
+            self.locks
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(identity.clone())
+                .or_default(),
+        );
+        OpenLockHandle {
+            locks: self,
+            identity: identity.clone(),
+            lock: Some(lock),
+        }
+    }
+}
+
+struct OpenLockHandle<'a> {
+    locks: &'a OpenLocks,
+    identity: DatabaseIdentity,
+    // Only `Drop` takes this, so it is always set while the handle is in use.
+    lock: Option<Arc<Mutex<()>>>,
+}
+
+impl OpenLockHandle<'_> {
+    fn lock(&self) -> MutexGuard<'_, ()> {
+        self.lock
+            .as_deref()
+            .expect("open lock is set until the handle drops")
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl Drop for OpenLockHandle<'_> {
+    fn drop(&mut self) {
+        let mut locks = self
+            .locks
+            .locks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        // Release this handle's reference under the registry lock, so that
+        // handles dropping at the same time cannot each see the other's.
+        drop(self.lock.take());
+        // Only the map holds a reference, so no other caller is waiting to
+        // open this snapshot.
+        if locks
+            .get(&self.identity)
+            .is_some_and(|lock| Arc::strong_count(lock) == 1)
+        {
+            locks.remove(&self.identity);
         }
     }
 }
 
 static READERS: LazyLock<RwLock<ReaderCache>> =
     LazyLock::new(|| RwLock::new(ReaderCache::default()));
+
+static OPEN_LOCKS: LazyLock<OpenLocks> = LazyLock::new(OpenLocks::default);
 
 static CACHE_MAX_BYTES: LazyLock<Result<usize, String>> =
     LazyLock::new(|| parse_cache_max_bytes(env::var_os(CACHE_MAX_BYTES_ENV).as_deref()));
@@ -85,26 +199,56 @@ fn cache_max_bytes() -> PolarsResult<usize> {
 }
 
 pub fn reader_for(identity: &DatabaseIdentity) -> PolarsResult<Arc<CachedReader>> {
-    if let Some(reader) = READERS
-        .read()
-        .map_err(|_| polars_err!(ComputeError: "MMDB reader cache lock is poisoned"))?
-        .readers
-        .get(identity)
+    reader_from(
+        &READERS,
+        &OPEN_LOCKS,
+        identity,
+        cache_max_bytes,
+        open_snapshot,
+    )
+}
+
+fn reader_from(
+    cache: &RwLock<ReaderCache>,
+    open_locks: &OpenLocks,
+    identity: &DatabaseIdentity,
+    max_bytes: impl FnOnce() -> PolarsResult<usize>,
+    open: impl FnOnce(&DatabaseIdentity) -> PolarsResult<CachedReader>,
+) -> PolarsResult<Arc<CachedReader>> {
+    let poisoned = || polars_err!(ComputeError: "MMDB reader cache lock is poisoned");
+    let max_bytes = max_bytes()?;
+    let found = cache.read().map_err(|_| poisoned())?.get(identity);
+    if let Some((reader, evicted)) = found {
+        if evicted {
+            // Cache the reader again if that does not mean waiting for the
+            // lock. Either way, the lookup uses the reader already in memory.
+            if let Ok(mut cache) = cache.try_write() {
+                cache.revive(identity, Arc::clone(&reader), max_bytes);
+            }
+        }
+        return Ok(reader);
+    }
+
+    // Only one caller opens a snapshot. Others wait here, then find it cached.
+    let handle = open_locks.acquire(identity);
+    let _open_guard = handle.lock();
     {
-        return Ok(Arc::clone(reader));
+        let mut cache = cache.write().map_err(|_| poisoned())?;
+        if let Some((reader, evicted)) = cache.get(identity) {
+            if evicted {
+                cache.revive(identity, Arc::clone(&reader), max_bytes);
+            }
+            return Ok(reader);
+        }
     }
 
-    // Keep the write lock while opening a new generation. Initial opens are
-    // rare, and this coalesces concurrent construction of the same snapshot.
-    let mut readers = READERS
+    // Read and parse the file without the cache lock, so lookups against
+    // other databases do not wait.
+    let reader = Arc::new(open(identity)?);
+    cache
         .write()
-        .map_err(|_| polars_err!(ComputeError: "MMDB reader cache lock is poisoned"))?;
-    if let Some(reader) = readers.readers.get(identity) {
-        return Ok(Arc::clone(reader));
-    }
-
-    let reader = Arc::new(open_snapshot(identity)?);
-    readers.insert(identity.clone(), Arc::clone(&reader), cache_max_bytes()?);
+        .map_err(|_| poisoned())?
+        .insert(identity.clone(), Arc::clone(&reader), max_bytes);
     Ok(reader)
 }
 
@@ -458,6 +602,223 @@ mod tests {
         assert!(!cache.readers.contains_key(&city_identity));
         assert!(cache.readers.contains_key(&asn_identity));
         assert_eq!(cache.bytes, asn_identity.size as usize);
+    }
+
+    const ASN_DB: &str = "tests/data/test-data/GeoLite2-ASN-Test.mmdb";
+    const COUNTRY_DB: &str = "tests/data/test-data/GeoIP2-Country-Test.mmdb";
+
+    fn opened(identity: &DatabaseIdentity) -> Arc<CachedReader> {
+        Arc::new(open_snapshot(identity).unwrap())
+    }
+
+    fn bytes(identity: &DatabaseIdentity) -> usize {
+        identity_bytes(identity)
+    }
+
+    #[test]
+    fn evicts_the_least_recently_used_reader() {
+        let city = city_identity();
+        let asn = test_identity(Path::new(ASN_DB));
+        let country = test_identity(Path::new(COUNTRY_DB));
+        let max_bytes = bytes(&city) + bytes(&asn).max(bytes(&country));
+        let mut cache = ReaderCache::default();
+
+        cache.insert(city.clone(), opened(&city), max_bytes);
+        cache.insert(asn.clone(), opened(&asn), max_bytes);
+        // City was inserted first but used last, so ASN is evicted.
+        assert!(cache.get(&city).is_some());
+        cache.insert(country.clone(), opened(&country), max_bytes);
+
+        assert!(cache.readers.contains_key(&city));
+        assert!(!cache.readers.contains_key(&asn));
+        assert!(cache.readers.contains_key(&country));
+        assert_eq!(cache.bytes, bytes(&city) + bytes(&country));
+    }
+
+    #[test]
+    fn revives_an_evicted_reader_while_it_is_still_held() {
+        let city = city_identity();
+        let asn = test_identity(Path::new(ASN_DB));
+        let mut cache = ReaderCache::default();
+
+        let held_city = opened(&city);
+        cache.insert(city.clone(), Arc::clone(&held_city), 0);
+        cache.insert(asn.clone(), opened(&asn), 0);
+        assert!(!cache.readers.contains_key(&city));
+
+        let (revived, evicted) = cache.get(&city).unwrap();
+        assert!(evicted);
+        assert!(Arc::ptr_eq(&held_city, &revived));
+        cache.revive(&city, revived, 0);
+        assert!(cache.readers.contains_key(&city));
+        assert!(!cache.readers.contains_key(&asn));
+        assert_eq!(cache.bytes, bytes(&city));
+
+        // ASN was not held, so it cannot be revived.
+        assert!(cache.get(&asn).is_none());
+        assert!(!cache.evicted.contains_key(&asn));
+    }
+
+    #[test]
+    fn forgets_evicted_readers_once_they_are_dropped() {
+        let city = city_identity();
+        let asn = test_identity(Path::new(ASN_DB));
+        let country = test_identity(Path::new(COUNTRY_DB));
+        let mut cache = ReaderCache::default();
+
+        let held_city = opened(&city);
+        cache.insert(city.clone(), Arc::clone(&held_city), 0);
+        cache.insert(asn.clone(), opened(&asn), 0);
+        assert!(cache.evicted.contains_key(&city));
+
+        drop(held_city);
+        cache.insert(country.clone(), opened(&country), 0);
+        assert!(cache.evicted.is_empty());
+        assert!(cache.get(&city).is_none());
+    }
+
+    fn counting_open(
+        opens: &AtomicU64,
+    ) -> impl FnOnce(&DatabaseIdentity) -> PolarsResult<CachedReader> + '_ {
+        move |identity| {
+            opens.fetch_add(1, Ordering::SeqCst);
+            open_snapshot(identity)
+        }
+    }
+
+    #[test]
+    fn alternating_lookups_over_the_limit_reuse_held_readers() {
+        let cache = RwLock::new(ReaderCache::default());
+        let open_locks = OpenLocks::default();
+        let city = city_identity();
+        let asn = test_identity(Path::new(ASN_DB));
+        let city_opens = AtomicU64::new(0);
+        let asn_opens = AtomicU64::new(0);
+
+        // Each lookup evicts the other database, as when two databases in one
+        // query exceed the limit. Overlapping batches still hold both readers.
+        let mut held = Vec::new();
+        for _ in 0..5 {
+            held.push(
+                reader_from(
+                    &cache,
+                    &open_locks,
+                    &city,
+                    || Ok(1),
+                    counting_open(&city_opens),
+                )
+                .unwrap(),
+            );
+            held.push(
+                reader_from(
+                    &cache,
+                    &open_locks,
+                    &asn,
+                    || Ok(1),
+                    counting_open(&asn_opens),
+                )
+                .unwrap(),
+            );
+        }
+
+        assert_eq!(city_opens.load(Ordering::SeqCst), 1);
+        assert_eq!(asn_opens.load(Ordering::SeqCst), 1);
+        assert_eq!(cache.read().unwrap().readers.len(), 1);
+        assert!(open_locks.locks.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn coalesces_concurrent_opens_of_the_same_snapshot() {
+        let cache = RwLock::new(ReaderCache::default());
+        let open_locks = OpenLocks::default();
+        let city = city_identity();
+        let opens = AtomicU64::new(0);
+        let barrier = std::sync::Barrier::new(4);
+
+        let readers = std::thread::scope(|scope| {
+            let threads = (0..4)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        reader_from(
+                            &cache,
+                            &open_locks,
+                            &city,
+                            || Ok(usize::MAX),
+                            |identity| {
+                                opens.fetch_add(1, Ordering::SeqCst);
+                                std::thread::sleep(std::time::Duration::from_millis(50));
+                                open_snapshot(identity)
+                            },
+                        )
+                        .unwrap()
+                    })
+                })
+                .collect::<Vec<_>>();
+            threads
+                .into_iter()
+                .map(|thread| thread.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+
+        assert_eq!(opens.load(Ordering::SeqCst), 1);
+        assert!(
+            readers
+                .iter()
+                .all(|reader| Arc::ptr_eq(reader, &readers[0]))
+        );
+        assert!(open_locks.locks.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn opens_files_without_blocking_other_cached_databases() {
+        let cache = RwLock::new(ReaderCache::default());
+        let open_locks = OpenLocks::default();
+        let city = city_identity();
+        let asn = test_identity(Path::new(ASN_DB));
+        let cached_asn =
+            reader_from(&cache, &open_locks, &asn, || Ok(usize::MAX), open_snapshot).unwrap();
+        let (opening_sender, opening) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+
+        let (cache, open_locks, city) = (&cache, &open_locks, &city);
+        std::thread::scope(|scope| {
+            let city_thread = scope.spawn(move || {
+                reader_from(
+                    cache,
+                    open_locks,
+                    city,
+                    || Ok(usize::MAX),
+                    |identity| {
+                        opening_sender.send(()).unwrap();
+                        released.recv().unwrap();
+                        open_snapshot(identity)
+                    },
+                )
+                .unwrap()
+            });
+            opening.recv().unwrap();
+
+            // The city file is still being opened. A cache hit for another
+            // database must not wait for it.
+            let (done_sender, done) = std::sync::mpsc::channel();
+            let asn = &asn;
+            scope.spawn(move || {
+                let reader = reader_from(
+                    cache,
+                    open_locks,
+                    asn,
+                    || Ok(usize::MAX),
+                    |_| panic!("ASN is cached"),
+                )
+                .unwrap();
+                done_sender.send(reader).unwrap();
+            });
+            let reader = done.recv_timeout(std::time::Duration::from_secs(10));
+            release.send(()).unwrap();
+            assert!(Arc::ptr_eq(&reader.unwrap(), &cached_asn));
+            city_thread.join().unwrap();
+        });
     }
 
     #[test]
