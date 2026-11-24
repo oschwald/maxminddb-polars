@@ -8,6 +8,8 @@ python -m pip install maxminddb-polars
 
 This checkout supports Python 3.10 or later and Polars 1.43.2, 1.44, 2.0, and
 2.1. Polars 2.1 requires Python 3.11 or later. Python 3.10 installs Polars 2.0.
+Python 3.15 requires Polars 2.0 or later, because some of Polars 1.x's own
+Series methods return None there.
 See [`pyproject.toml`](../pyproject.toml) for dependency bounds and the
 [compatibility matrix](../.github/workflows/compatibility.yml) for tested versions.
 Free-threaded CPython builds are not built or tested.
@@ -49,8 +51,9 @@ Prerelease testing does not imply support. Dropping a Python minor must be noted
 in the release notes.
 
 The Compatibility workflow tests every supported Python minor against the minimum
-Polars version and selected patches. Polars 2.1 is excluded for Python 3.10
-because Polars 2.1 requires Python 3.11. The workflow runs monthly, on dependency
+Polars version it supports and selected patches. Polars 2.1 is excluded for Python 3.10
+because Polars 2.1 requires Python 3.11. Polars 1.x is excluded for Python 3.15
+because it does not work there. The workflow runs monthly, on dependency
 pull requests, and on demand. Run it for release candidates not covered by those
 checks.
 
