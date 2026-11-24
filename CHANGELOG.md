@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in-memory execution. Polars may now pass each physical chunk of the input
   column separately, so a column split into many tiny chunks can be slower;
   call `rechunk()` on it before the lookup.
+- An explicit `dtype` now reads fields that the schema for a standard
+  `database_type` does not list, such as `traits.static_ip_score` in Enterprise
+  databases or a field added by a newer database. `lookup_path` and partial
+  `lookup` dtypes decode these fields as they would for a custom database.
+  Previously they raised a schema-planning error, so such fields could not be
+  read. Fields that the schema lists are still checked during planning. A
+  misspelled field name in a partial `lookup` dtype, or in a `lookup_path` path
+  passed with `dtype`, now gives nulls instead of an error.
 
 ### Fixed
 

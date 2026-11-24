@@ -22,8 +22,12 @@ result = frame.with_columns(
 )
 ```
 
-For a standard database, the library checks fields and dtypes during schema
-planning. For a custom database, it checks them while decoding records.
+For a standard database, the library checks the fields that its schema lists
+during schema planning. A field the schema does not list, such as one added by a
+newer database or a custom field in a file that keeps a standard
+`database_type`, is decoded with the dtype you pass, as for a custom database.
+A misspelled field name therefore gives nulls rather than an error. For a
+custom database, the library checks fields and dtypes while decoding records.
 Mappings preserve field order and give the same results as an equivalent
 `pl.Struct`.
 

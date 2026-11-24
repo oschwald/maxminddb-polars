@@ -15,6 +15,7 @@ import maxminddb_polars as mmp
 DATA = Path(__file__).parents[1] / "data" / "test-data"
 CITY_DB = DATA / "GeoIP2-City-Test.mmdb"
 CUSTOM_DB = DATA / "MaxMind-DB-test-decoder.mmdb"
+ENTERPRISE_DB = DATA / "GeoIP2-Enterprise-Test.mmdb"
 
 
 @pytest.mark.parametrize("engine", ["auto", "in-memory", "streaming"])
@@ -178,6 +179,62 @@ def test_unknown_database_requires_dtype_during_planning() -> None:
         .select(mmp.lookup_path("ip", CUSTOM_DB, ["uint32"]))
     )
     with pytest.raises(pl.exceptions.ComputeError, match="pass dtype explicitly"):
+        query.collect_schema()
+
+
+def test_explicit_dtype_reads_a_field_the_known_schema_does_not_list() -> None:
+    frame = pl.DataFrame({"ip": ["74.209.24.1", "55.0.0.2", None]})
+    result = frame.select(
+        score=mmp.lookup_path(
+            "ip", ENTERPRISE_DB, ("traits", "static_ip_score"), dtype=pl.Float64
+        ),
+        legitimate=mmp.lookup_path(
+            "ip", ENTERPRISE_DB, ("traits", "is_legitimate_proxy"), dtype=pl.Boolean
+        ),
+        uk=mmp.lookup_path(
+            "ip",
+            ENTERPRISE_DB,
+            ("subdivisions", 0, "names", "uk"),
+            dtype=pl.String,
+        ),
+    )
+
+    assert result.schema == {
+        "score": pl.Float64,
+        "legitimate": pl.Boolean,
+        "uk": pl.String,
+    }
+    assert result.to_dict(as_series=False) == {
+        "score": [0.34, None, None],
+        "legitimate": [True, None, None],
+        "uk": [None, "Київ", None],
+    }
+
+
+def test_unlisted_known_field_still_requires_dtype() -> None:
+    query = (
+        pl.DataFrame({"ip": ["74.209.24.1"]})
+        .lazy()
+        .select(mmp.lookup_path("ip", ENTERPRISE_DB, ("traits", "static_ip_score")))
+    )
+    with pytest.raises(
+        pl.exceptions.ComputeError,
+        match='has no field "static_ip_score" at path /traits',
+    ):
+        query.collect_schema()
+
+
+def test_explicit_dtype_cannot_reshape_a_listed_known_field() -> None:
+    query = (
+        pl.DataFrame({"ip": ["89.160.20.128"]})
+        .lazy()
+        .select(
+            mmp.lookup_path(
+                "ip", CITY_DB, ("country", "iso_code", "extra"), dtype=pl.String
+            )
+        )
+    )
+    with pytest.raises(pl.exceptions.ComputeError, match="cannot apply path"):
         query.collect_schema()
 
 

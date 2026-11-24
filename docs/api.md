@@ -44,9 +44,13 @@ one-key path as `("uint32",)`, not `"uint32"`. Dot-separated strings are not
 supported because MMDB keys can contain dots.
 
 For standard databases, `lookup_path` infers the result dtype and rejects
-invalid paths during planning, even with `strict=False`. If you pass `dtype`,
-it must match exactly, including every field of a nested Struct. To select part
-of a Struct, use `lookup(..., dtype=...)`. Custom databases require `dtype`.
+paths that its schema does not list or that do not fit the schema during
+planning, even with `strict=False`. If you pass `dtype` for a field the
+standard schema lists, it must match exactly, including every field of a nested
+Struct. To select part of a Struct, use `lookup(..., dtype=...)`. If the path
+names a field the standard schema does not list, such as a field added by a
+newer database, pass `dtype` to read it as you would from a custom database.
+Custom databases require `dtype`.
 
 The equivalent namespace method is
 `pl.col("ip").mmdb.lookup_path(database, path, dtype=dtype, strict=strict)`.
@@ -94,7 +98,9 @@ Unsupported logical types fail during expression construction.
 | Invalid IP, `strict=False`                           | null output                        |
 | Unknown database without dtype                       | schema-planning error              |
 | Known field/dtype mismatch                           | schema-planning error              |
-| Path not valid for a known schema                    | schema-planning error              |
+| Path that does not fit a field a known schema lists  | schema-planning error              |
+| Field a known schema does not list, without dtype    | schema-planning error              |
+| Field a known schema does not list, with dtype       | decoded as for a custom database   |
 | Corrupt data or custom dtype mismatch                | Polars compute error               |
 | Decoder or metadata resource limit exceeded          | Polars compute error               |
 
