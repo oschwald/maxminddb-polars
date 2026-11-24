@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `lookup_path` now lets Polars run filters and slices before the lookup, as
+  `lookup` already did. A lazy query that filters on other columns or limits
+  rows after a path lookup looks up only the rows it keeps, and strict mode no
+  longer raises an error for an invalid IP in a row that such a filter removes.
+  Scalar-path lookups also run in streaming batches instead of falling back to
+  in-memory execution. Polars may now pass each physical chunk of the input
+  column separately, so a column split into many tiny chunks can be slower;
+  call `rechunk()` on it before the lookup.
+
 ### Fixed
 
 - `lookup_path` now raises `TypeError` when `path` is a plain string or a

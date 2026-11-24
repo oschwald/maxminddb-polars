@@ -104,9 +104,9 @@ def lookup_path(
             "dtype": None if dtype is None else normalize_dtype(dtype),
             "strict": strict,
         },
-        # Keep the logical Series together so the native plugin can coalesce
-        # tiny physical chunks into bounded parallel tasks.
-        is_elementwise=False,
+        # Each output row depends only on its input row, so Polars may push
+        # filters and slices below the lookup and split it into batches.
+        is_elementwise=True,
     )
 
 

@@ -113,7 +113,9 @@ def test_parallel_dispatch_with_controlled_worker_pool() -> None:
             "SE" if value == "89.160.20.128" else None
             for value in [*first, *second]
         ]
-        assert result["country"].n_chunks() == 10
+        # Polars may call an elementwise plugin once per physical chunk, so
+        # check the task bound rather than an exact chunk count.
+        assert max(len(chunk) for chunk in result["country"].get_chunks()) <= 2_048
         assert result["country"].to_list() == expected
 
         fragmented = pl.concat(
@@ -126,8 +128,7 @@ def test_parallel_dispatch_with_controlled_worker_pool() -> None:
                 "ip", database, ["country", "iso_code"]
             ).alias("country")
         )
-        assert fragmented_result["country"].n_chunks() == 4
-        assert fragmented_result["country"].head(4).to_list() == ["SE"] * 4
+        assert fragmented_result["country"].to_list() == ["SE"] * 8_192
 
         binary_values = ["::1.1.1.0", None, "not-an-ip"] * 2_731
         binary_result = pl.DataFrame({{"ip": binary_values}}).select(
@@ -191,6 +192,38 @@ def test_invalid_ip_strictness_and_nulls() -> None:
         )
     )
     assert result.to_dict(as_series=False) == {"country": [None, None]}
+
+
+@pytest.mark.parametrize("engine", ["auto", "in-memory", "streaming"])
+def test_filter_is_pushed_below_lookup(
+    engine: Literal["auto", "in-memory", "streaming"],
+) -> None:
+    # Strict mode checks only the rows left after the filter, as with lookup.
+    frame = pl.LazyFrame({"ip": ["bad", "89.160.20.128"]})
+    query = frame.with_columns(
+        country=mmp.lookup_path("ip", CITY_DB, ["country", "iso_code"])
+    ).filter(pl.col("ip") != "bad")
+
+    assert query.collect(engine=engine).to_dict(as_series=False) == {
+        "ip": ["89.160.20.128"],
+        "country": ["SE"],
+    }
+
+
+@pytest.mark.parametrize("engine", ["auto", "in-memory", "streaming"])
+def test_slice_is_pushed_below_lookup(
+    engine: Literal["auto", "in-memory", "streaming"],
+) -> None:
+    # The lookup should never see the row that the slice drops.
+    frame = pl.LazyFrame({"ip": ["89.160.20.128", "bad"]})
+    query = frame.with_columns(
+        country=mmp.lookup_path("ip", CITY_DB, ["country", "iso_code"])
+    ).head(1)
+
+    assert query.collect(engine=engine).to_dict(as_series=False) == {
+        "ip": ["89.160.20.128"],
+        "country": ["SE"],
+    }
 
 
 @pytest.mark.parametrize(
