@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that found absent paths by checking for an empty List, for example with
   `.list.len() == 0`, should check `is_null()` instead. A missing List field
   inside a Struct still defaults to an empty List.
+- `lookup_path` now raises `TypeError` when `path` is a set, frozenset or
+  mapping, such as a dict. A set has no fixed order, so its keys could be read
+  in a different order from one run to the next and return different values or
+  null, and a dict passed only its keys. Pass a list or tuple instead.
 
 ## [0.4.0] - 2026-11-07
 

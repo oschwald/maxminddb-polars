@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import ItemsView, KeysView, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -58,6 +59,21 @@ def _normalize_path(path: Sequence[str | int]) -> list[str | int]:
         raise TypeError(
             "MMDB lookup path must be a sequence of path components, not "
             f"{type(path).__name__}"
+        )
+    # Sets have no stable iteration order, so their components could be read
+    # in a different order from one run to the next. Dict key and item views
+    # are also Sets but keep insertion order, so they are left alone.
+    if isinstance(path, AbstractSet) and not isinstance(path, (KeysView, ItemsView)):
+        raise TypeError(
+            "MMDB lookup path must be an ordered sequence such as a list or "
+            f"tuple, not {type(path).__name__}"
+        )
+    # Mappings iterate over their keys only, which is unlikely to be what the
+    # caller meant.
+    if isinstance(path, Mapping):
+        raise TypeError(
+            "MMDB lookup path must be a sequence of path components, not a "
+            f"mapping ({type(path).__name__}); pass a list or tuple of keys"
         )
     normalized = list(path)
     if not normalized:

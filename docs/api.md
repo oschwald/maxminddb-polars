@@ -40,8 +40,9 @@ def lookup_path(
 Pass `path` as a non-empty list or tuple, such as `("country", "iso_code")`.
 Use strings for map keys and integers for List indexes. Negative indexes count
 from the end. A bare string or bytes-like value raises `TypeError`, so write a
-one-key path as `("uint32",)`, not `"uint32"`. Dot-separated strings are not
-supported because MMDB keys can contain dots.
+one-key path as `("uint32",)`, not `"uint32"`. A set, frozenset or mapping
+also raises `TypeError` because it has no fixed component order. Dot-separated
+strings are not supported because MMDB keys can contain dots.
 
 For standard databases, `lookup_path` infers the result dtype and rejects
 paths that its schema does not list or that do not fit the schema during
