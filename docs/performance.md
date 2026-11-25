@@ -12,16 +12,24 @@ can reuse some repeated expressions, but does not pass those field selections
 to the decoder. To avoid repeating a full lookup, assign it to a column with
 `with_columns`, then select its fields.
 
-Polars 2.0 defaults lazy queries to streaming. Whole-record and partial-record
-lookups can run in streaming batches. Scalar-path lookups use an in-memory fallback
-to preserve their internal parallelism. Streaming does not guarantee a memory
-bound for a path lookup or the complete query.
+Polars 2.0 defaults lazy queries to streaming. All lookups can run in streaming
+batches. Streaming does not guarantee a memory bound for a lookup or the
+complete query.
+
+Each lookup output row depends only on its input row, so in a lazy query Polars
+can run filters and slices before the lookup. A query such as
+`with_columns(country=lookup_path(...)).filter(pl.col("ip") != "bad").head(10)`
+looks up only the rows that the filter keeps, up to the first 10. Strict mode
+also checks only those rows, so an invalid IP that the filter removes does not
+raise an error. This needs a filter that does not use the lookup result.
+Eager queries, and filters on the lookup result, look up every row first.
 
 ## Polars 1.44.2 and 2.0.0 comparison
 
 With 20 workers and 50% unique City addresses, Polars 2.0's streaming default
 improved partial and whole-record throughput. Scalar paths were faster with
-explicit `in-memory`. Median throughput, in millions of rows per second:
+explicit `in-memory`. These figures are from 0.4.0 development, which ran
+scalar paths in memory even under streaming. Median throughput, in millions of rows per second:
 
 | Operation                           | Polars 1.44.2 auto | Polars 2.0.0 auto | Polars 2.0.0 in-memory |
 | ----------------------------------- | ------------------ | ----------------- | ---------------------- |
@@ -154,4 +162,7 @@ within each batch.
 Scalar paths also decode each unique record offset once in batches below
 8,192 rows or with at most two workers. Larger batches with more workers decode
 in parallel without an IP cache. Each task holds at most 2,048 rows of temporary
-decoded values. Small input chunks are combined into tasks without copying IPs.
+decoded values. Small input chunks within one batch are combined into tasks
+without copying IPs. Polars may pass each physical chunk of a column as its own
+batch, so a column split into many tiny chunks can be slower. Call `rechunk()`
+on such a column before the lookup.
