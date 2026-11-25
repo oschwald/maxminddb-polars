@@ -58,10 +58,11 @@ CI builds from source on Linux, macOS, and Windows, and builds every wheel targe
 Runtime smoke tests cover whole records, partial schemas, and paths with `auto`,
 `in-memory`, and `streaming`:
 
-- manylinux x86-64, both macOS architectures, and Windows x86-64 test the same
-  wheel against each pinned Polars version.
-- The Linux wheel also runs on the oldest and newest supported Python versions.
-- Linux AArch64 and musllinux wheels are built and inspected, without runtime tests.
+- Every wheel is tested against each pinned Polars version before upload. Linux
+  AArch64 wheels build and run on native Arm runners. musllinux wheels run in a
+  Python 3.13 Alpine container on the matching architecture.
+- The manylinux x86-64 wheel also runs on the oldest and newest supported Python
+  versions.
 
 Lockfiles, the Rust toolchain, and test fixtures are pinned. Dependency or fixture
 updates require the full schema and artifact checks.
