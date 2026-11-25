@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added Python 3.15 support. Python 3.15 requires Polars 2.0 or later, because
+  some of Polars 1.x's own Series methods return None there.
+
 ### Changed
 
 - `lookup_path` now lets Polars run filters and slices before the lookup, as
