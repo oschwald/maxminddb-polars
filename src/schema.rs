@@ -86,9 +86,14 @@ pub fn resolve_path_dtype(
         polars_bail!(InvalidOperation: "MMDB lookup path must not be empty")
     }
 
-    let inferred = known_schema(&reader.metadata().database_type)
-        .map(|schema| dtype_at_path(schema, path))
-        .transpose()?;
+    let inferred = match known_schema(&reader.metadata().database_type) {
+        None => None,
+        Some(schema) if explicit.is_none() => Some(dtype_at_path(schema, path)?),
+        // A field the known schema does not list, such as one a newer
+        // database adds, is read with the caller's dtype, as for a custom
+        // database.
+        Some(schema) => listed_dtype_at_path(schema, path)?.ok(),
+    };
 
     match (explicit, inferred) {
         (Some(explicit), Some(inferred)) if explicit != &inferred => {
@@ -112,20 +117,32 @@ pub fn resolve_path_dtype(
     }
 }
 
-pub fn dtype_at_path(mut dtype: SchemaSpec, path: &[PathPart]) -> PolarsResult<SchemaSpec> {
+pub fn dtype_at_path(dtype: SchemaSpec, path: &[PathPart]) -> PolarsResult<SchemaSpec> {
+    listed_dtype_at_path(dtype, path)?.map_err(|position| {
+        polars_err!(
+            InvalidOperation:
+            "known MMDB schema has no field {:?} at path /{}",
+            path[position].render(),
+            render_path(&path[..position])
+        )
+    })
+}
+
+/// Walks `path` through a known schema. Returns `Ok(Err(position))` when the
+/// key at `position` names a field the schema does not list, and an error when
+/// the path does not fit the shape of a field the schema does list.
+fn listed_dtype_at_path(
+    mut dtype: SchemaSpec,
+    path: &[PathPart],
+) -> PolarsResult<Result<SchemaSpec, usize>> {
     for (position, part) in path.iter().enumerate() {
         dtype = match (part, dtype) {
-            (PathPart::Key(key), SchemaSpec::Struct { fields }) => fields
-                .into_iter()
-                .find(|field| field.name == *key)
-                .map(|field| field.dtype)
-                .ok_or_else(|| {
-                    polars_err!(
-                        InvalidOperation:
-                        "known MMDB schema has no field {key:?} at path /{}",
-                        render_path(&path[..position])
-                    )
-                })?,
+            (PathPart::Key(key), SchemaSpec::Struct { fields }) => {
+                match fields.into_iter().find(|field| field.name == *key) {
+                    Some(field) => field.dtype,
+                    None => return Ok(Err(position)),
+                }
+            }
             (PathPart::Index(_), SchemaSpec::List { inner }) => *inner,
             (part, dtype) => {
                 polars_bail!(
@@ -138,7 +155,7 @@ pub fn dtype_at_path(mut dtype: SchemaSpec, path: &[PathPart]) -> PolarsResult<S
             }
         };
     }
-    Ok(dtype)
+    Ok(Ok(dtype))
 }
 
 pub fn to_mmdb_path(path: &[PathPart]) -> PolarsResult<Vec<PathElement<'_>>> {
@@ -533,16 +550,13 @@ fn validate_partial_schema(
             },
         ) => {
             for requested_field in requested_fields {
+                // A field the known schema does not list is decoded with the
+                // requested dtype, as for a custom database.
                 let Some(known_field) = known_fields
                     .iter()
                     .find(|field| field.name == requested_field.name)
                 else {
-                    polars_bail!(
-                        InvalidOperation:
-                        "known MMDB schema has no field {:?} at /{}",
-                        requested_field.name,
-                        path.join("/")
-                    )
+                    continue;
                 };
                 path.push(requested_field.name.clone());
                 validate_partial_schema(&requested_field.dtype, &known_field.dtype, path)?;
@@ -657,6 +671,51 @@ mod tests {
 
         let error = dtype_at_path(city_schema(), &[PathPart::Index(0)]).unwrap_err();
         assert!(error.to_string().contains("cannot apply path component"));
+    }
+
+    #[test]
+    fn reports_where_a_path_leaves_the_known_schema() {
+        let path = [
+            PathPart::Key("subdivisions".to_owned()),
+            PathPart::Index(0),
+            PathPart::Key("names".to_owned()),
+            PathPart::Key("uk".to_owned()),
+        ];
+        assert_eq!(listed_dtype_at_path(city_schema(), &path).unwrap(), Err(3));
+
+        let error = dtype_at_path(city_schema(), &path).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains(r#"has no field "uk" at path /subdivisions/0/names"#)
+        );
+    }
+
+    #[test]
+    fn partial_schemas_accept_unlisted_fields_but_check_listed_ones() {
+        let requested = struct_(vec![
+            field(
+                "traits",
+                struct_(vec![
+                    field("static_ip_score", SchemaSpec::Float64),
+                    field("is_anycast", SchemaSpec::Boolean),
+                ]),
+            ),
+            field("custom", struct_(vec![field("value", SchemaSpec::UInt32)])),
+        ]);
+        validate_partial_schema(&requested, &enterprise_schema(), &mut Vec::new()).unwrap();
+
+        let wrong = struct_(vec![field(
+            "traits",
+            struct_(vec![
+                field("static_ip_score", SchemaSpec::Float64),
+                field("is_anycast", SchemaSpec::String),
+            ]),
+        )]);
+        let error =
+            validate_partial_schema(&wrong, &enterprise_schema(), &mut Vec::new()).unwrap_err();
+        assert!(error.to_string().contains("does not match known dtype"));
+        assert!(error.to_string().contains("/traits/is_anycast"));
     }
 
     #[test]

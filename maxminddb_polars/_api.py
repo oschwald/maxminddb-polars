@@ -86,7 +86,9 @@ def lookup_path(
 
     Null IPs, lookup misses, and paths absent from a record produce null. Known
     schemas validate paths during planning; an explicit dtype must exactly
-    match the inferred path dtype. Unknown schemas require an explicit dtype.
+    match the inferred dtype of a field the schema lists. A field the known
+    schema does not list, and any field of an unknown schema, requires an
+    explicit dtype.
 
     Invalid IP strings raise a Polars ``ComputeError`` unless ``strict=False``,
     in which case they also produce null. Database and decoder resource-limit
@@ -121,7 +123,9 @@ def lookup(
 
     Standard MaxMind database schemas are inferred from metadata. Unknown
     databases require an explicit Struct dtype or field-to-dtype mapping. A
-    partial Struct selects only those fields from a known database.
+    partial Struct selects only those fields from a known database. Fields the
+    known schema lists must match its dtypes; other fields are decoded with the
+    requested dtype, as for an unknown database.
 
     Null IPs and lookup misses produce null records. Invalid IP strings raise
     a Polars ``ComputeError`` unless ``strict=False``. Database and decoder

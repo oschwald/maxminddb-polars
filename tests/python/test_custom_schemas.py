@@ -12,6 +12,7 @@ import maxminddb_polars as mmp
 DATABASES = Path(__file__).parents[1] / "data" / "test-data"
 CUSTOM_DB = DATABASES / "MaxMind-DB-test-decoder.mmdb"
 CITY_DB = DATABASES / "GeoIP2-City-Test.mmdb"
+ENTERPRISE_DB = DATABASES / "GeoIP2-Enterprise-Test.mmdb"
 
 
 def test_range_safe_uint32_scalar_to_uint16() -> None:
@@ -674,18 +675,92 @@ def test_custom_nested_path_accepts_a_mapping_dtype() -> None:
     assert result.item() == {"mapX": {"arrayX": [7, 8, 9]}}
 
 
-def test_partial_known_schema_errors_during_planning() -> None:
+def test_partial_known_schema_checks_listed_fields_during_planning() -> None:
     frame = pl.DataFrame({"ip": ["89.160.20.128"]}).lazy()
-
-    unknown = frame.select(mmp.lookup("ip", CITY_DB, dtype={"unknown": pl.String}))
-    with pytest.raises(pl.exceptions.ComputeError, match="has no field"):
-        unknown.collect_schema()
 
     wrong = frame.select(
         mmp.lookup("ip", CITY_DB, dtype={"country": {"iso_code": pl.UInt32}})
     )
     with pytest.raises(pl.exceptions.ComputeError, match="does not match"):
         wrong.collect_schema()
+
+
+def test_partial_known_schema_reads_fields_the_schema_does_not_list() -> None:
+    dtype: dict[str, Any] = {
+        "subdivisions": pl.List(pl.Struct({"names": pl.Struct({"uk": pl.String})})),
+        "traits": {
+            "autonomous_system_number": pl.UInt32,
+            "is_legitimate_proxy": pl.Boolean,
+            "static_ip_score": pl.Float64,
+        },
+    }
+    result = pl.DataFrame({"ip": ["74.209.24.1", "55.0.0.2"]}).select(
+        record=mmp.lookup("ip", ENTERPRISE_DB, dtype=dtype)
+    )
+
+    assert result.schema == {
+        "record": pl.Struct(
+            {
+                "subdivisions": pl.List(
+                    pl.Struct({"names": pl.Struct({"uk": pl.String})})
+                ),
+                "traits": pl.Struct(
+                    {
+                        "autonomous_system_number": pl.UInt32,
+                        "is_legitimate_proxy": pl.Boolean,
+                        "static_ip_score": pl.Float64,
+                    }
+                ),
+            }
+        )
+    }
+    assert result["record"].to_list() == [
+        {
+            "subdivisions": [{"names": {"uk": None}}],
+            "traits": {
+                "autonomous_system_number": 14671,
+                "is_legitimate_proxy": True,
+                "static_ip_score": 0.34,
+            },
+        },
+        {
+            "subdivisions": [{"names": {"uk": "Київ"}}],
+            "traits": {
+                "autonomous_system_number": 15895,
+                "is_legitimate_proxy": None,
+                "static_ip_score": None,
+            },
+        },
+    ]
+
+
+def test_unlisted_known_field_type_mismatch_raises_during_decoding() -> None:
+    query = (
+        pl.DataFrame({"ip": ["74.209.24.1"]})
+        .lazy()
+        .select(
+            mmp.lookup(
+                "ip", ENTERPRISE_DB, dtype={"traits": {"static_ip_score": pl.String}}
+            )
+        )
+    )
+
+    assert query.collect_schema() == {
+        "ip": pl.Struct({"traits": pl.Struct({"static_ip_score": pl.String})})
+    }
+    with pytest.raises(pl.exceptions.ComputeError, match="could not decode"):
+        query.collect()
+
+
+def test_partial_known_schema_reads_a_top_level_field_the_schema_does_not_list() -> (
+    None
+):
+    result = pl.DataFrame({"ip": ["89.160.20.128"]}).select(
+        record=mmp.lookup("ip", CITY_DB, dtype={"unlisted": pl.String})
+    )
+
+    assert result.schema == {"record": pl.Struct({"unlisted": pl.String})}
+    assert result.item() == {"unlisted": None}
 
 
 def test_custom_schema_type_mismatch_is_deterministic() -> None:
