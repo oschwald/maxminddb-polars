@@ -5,6 +5,7 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from types import MappingProxyType
 from typing import Literal
 
 import polars as pl
@@ -294,6 +295,10 @@ def test_slice_is_pushed_below_lookup(
         (b"uint32", TypeError, "not bytes"),
         (bytearray(b"uint32"), TypeError, "not bytearray"),
         (memoryview(b"uint32"), TypeError, "not memoryview"),
+        ({"country", "iso_code"}, TypeError, "list or tuple, not set"),
+        (frozenset({"country"}), TypeError, "list or tuple, not frozenset"),
+        ({"country": "iso_code"}, TypeError, r"not a mapping \(dict\)"),
+        (MappingProxyType({"country": 0}), TypeError, r"mapping \(mappingproxy\)"),
     ],
 )
 def test_rejects_invalid_paths(
@@ -301,6 +306,16 @@ def test_rejects_invalid_paths(
 ) -> None:
     with pytest.raises(error, match=match):
         mmp.lookup_path("ip", CITY_DB, path)  # type: ignore[arg-type]
+
+
+def test_accepts_dict_keys_path() -> None:
+    # Dict key views are Sets, but they keep insertion order.
+    path = dict.fromkeys(("country", "iso_code")).keys()
+    frame = pl.DataFrame({"ip": ["89.160.20.128"]})
+
+    expression = mmp.lookup_path("ip", CITY_DB, path)  # type: ignore[arg-type]
+
+    assert frame.select(expression).item() == "SE"
 
 
 def test_rejects_bare_string_path_on_custom_database() -> None:
