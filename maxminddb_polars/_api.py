@@ -46,6 +46,19 @@ def _database_identity(database: str | Path) -> dict[str, str | int]:
 
 
 def _normalize_path(path: Sequence[str | int]) -> list[str | int]:
+    # A str is a Sequence[str], so a bare key would otherwise be split into
+    # one-character components. Bytes-like values iterate as integers and
+    # would silently become List indexes.
+    if isinstance(path, str):
+        raise TypeError(
+            "MMDB lookup path must be a sequence of path components, not a "
+            f"string; pass ({path!r},) to look up a single key"
+        )
+    if isinstance(path, (bytes, bytearray, memoryview)):
+        raise TypeError(
+            "MMDB lookup path must be a sequence of path components, not "
+            f"{type(path).__name__}"
+        )
     normalized = list(path)
     if not normalized:
         raise ValueError("MMDB lookup path must not be empty")

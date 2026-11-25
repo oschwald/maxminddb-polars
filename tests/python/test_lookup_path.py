@@ -194,17 +194,30 @@ def test_invalid_ip_strictness_and_nulls() -> None:
 
 
 @pytest.mark.parametrize(
-    ("path", "error"),
+    ("path", "error", "match"),
     [
-        ([], ValueError),
-        ([True], TypeError),
-        ([object()], TypeError),
-        ([2**80], ValueError),
+        ([], ValueError, "must not be empty"),
+        ([True], TypeError, "strings or integers"),
+        ([object()], TypeError, "strings or integers"),
+        ([2**80], ValueError, "signed 64-bit range"),
+        ("uint32", TypeError, r"not a string; pass \('uint32',\)"),
+        (b"uint32", TypeError, "not bytes"),
+        (bytearray(b"uint32"), TypeError, "not bytearray"),
+        (memoryview(b"uint32"), TypeError, "not memoryview"),
     ],
 )
-def test_rejects_invalid_paths(path: list[object], error: type[Exception]) -> None:
-    with pytest.raises(error):
+def test_rejects_invalid_paths(
+    path: object, error: type[Exception], match: str
+) -> None:
+    with pytest.raises(error, match=match):
         mmp.lookup_path("ip", CITY_DB, path)  # type: ignore[arg-type]
+
+
+def test_rejects_bare_string_path_on_custom_database() -> None:
+    # A str is a Sequence[str]; without the check this split into characters
+    # and returned null for every row instead of raising.
+    with pytest.raises(TypeError, match=r"pass \('uint32',\)"):
+        mmp.lookup_path("ip", CUSTOM_DB, "uint32", dtype=pl.UInt32)
 
 
 def test_rejects_wrong_input_and_explicit_dtype() -> None:
