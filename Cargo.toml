@@ -22,6 +22,10 @@ fuzzing = ["dep:serde_json"]
 [dependencies]
 maxminddb = "=0.33.0"
 polars = { version = "=0.55.2", default-features = false, features = [
+    "dtype-array",
+    "dtype-categorical",
+    "dtype-decimal",
+    "dtype-f16",
     "dtype-i8",
     "dtype-i16",
     "dtype-i128",
