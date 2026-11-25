@@ -93,7 +93,7 @@ Unsupported logical types fail during expression construction.
 | Path absent from a record or List index out of range | null output                        |
 | Missing scalar field                                 | null field                         |
 | Missing declared nested Struct                       | present Struct with field defaults |
-| Missing declared List                                | empty List                         |
+| Missing declared List field in a Struct              | empty List                         |
 | Invalid IP, `strict=True`                            | Polars compute error               |
 | Invalid IP, `strict=False`                           | null output                        |
 | Unknown database without dtype                       | schema-planning error              |
@@ -109,8 +109,9 @@ resource-limit, and schema errors still raise. Decoder limits also apply to
 structurally valid records and metadata. See [Security testing](security-testing.md).
 
 For `lookup`, a null outer Struct indicates a lookup miss, null input, or an
-invalid IP with `strict=False`. A Struct-valued `lookup_path` also returns null
-when the selected path is absent from a record.
+invalid IP with `strict=False`. A Struct- or List-valued `lookup_path` also
+returns null when the selected path is absent from a record, so an absent List
+is distinct from a stored empty array.
 
 Missing Structs apply the table's defaults to their fields recursively.
 The output does not distinguish a missing map from one containing those defaults.

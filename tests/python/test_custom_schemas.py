@@ -664,6 +664,41 @@ def test_struct_and_list_path_outputs_use_the_same_nested_schema_builder() -> No
     assert result["subdivisions"].list.len().to_list() == [1, None]
 
 
+def test_absent_list_path_is_null_like_scalar_and_struct_paths() -> None:
+    result = pl.DataFrame({"ip": ["::1.1.1.0", None]}).select(
+        list=mmp.lookup_path("ip", CUSTOM_DB, ["nope"], dtype=pl.List(pl.UInt32)),
+        scalar=mmp.lookup_path("ip", CUSTOM_DB, ["nope"], dtype=pl.UInt32),
+        struct=mmp.lookup_path("ip", CUSTOM_DB, ["nope"], dtype={"x": pl.UInt32}),
+        present=mmp.lookup_path("ip", CUSTOM_DB, ["array"], dtype=pl.List(pl.UInt32)),
+    )
+
+    assert result.to_dict(as_series=False) == {
+        "list": [None, None],
+        "scalar": [None, None],
+        "struct": [None, None],
+        "present": [[1, 2, 3], None],
+    }
+
+
+def test_absent_known_list_path_is_null() -> None:
+    result = pl.DataFrame({"ip": ["89.160.20.128", "2001:218::1"]}).select(
+        mmp.lookup_path("ip", CITY_DB, ["subdivisions"]).alias("subdivisions")
+    )
+
+    assert result["subdivisions"].is_null().to_list() == [False, True]
+    assert result["subdivisions"].list.len().to_list() == [1, None]
+
+
+def test_missing_list_field_in_a_struct_is_still_empty() -> None:
+    result = pl.DataFrame({"ip": ["::1.1.1.0"]}).select(
+        mmp.lookup(
+            "ip", CUSTOM_DB, dtype={"nope": pl.List(pl.UInt32), "uint16": pl.UInt16}
+        ).alias("record")
+    )
+
+    assert result.item() == {"nope": [], "uint16": 100}
+
+
 def test_custom_nested_path_accepts_a_mapping_dtype() -> None:
     dtype = {"mapX": {"arrayX": pl.List(pl.UInt32)}}
     result = pl.DataFrame({"ip": ["::1.1.1.0"]}).select(

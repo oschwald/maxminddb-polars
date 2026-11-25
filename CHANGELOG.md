@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   List indexes. Pass a one-element tuple, such as `("uint32",)`, instead. A
   single-character string such as `"a"` happened to work before and now raises
   as well.
+- `lookup_path` with a List dtype now returns null when the path is absent from
+  a record, as scalar and Struct paths already did. It previously returned an
+  empty List, which could not be told apart from a stored empty array. Code
+  that found absent paths by checking for an empty List, for example with
+  `.list.len() == 0`, should check `is_null()` instead. A missing List field
+  inside a Struct still defaults to an empty List.
 
 ## [0.4.0] - 2026-11-07
 

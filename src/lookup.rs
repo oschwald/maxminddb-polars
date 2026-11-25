@@ -664,18 +664,24 @@ fn decoded_values_to_series(
         row.and_then(|index| unique_values[index].as_ref())
             .is_some()
     }));
+    // A Struct's absent value is null through the outer validity, and its
+    // fields take defaults. A top-level List has no outer validity, so an
+    // absent value must stay null rather than becoming an empty List. Scalar
+    // paths are decoded in lookup_path_series and do not reach this code.
+    let is_struct = matches!(dtype, SchemaSpec::Struct { .. });
     let mut leaf_series = Vec::with_capacity(leaves.len());
     for leaf in leaves {
         let values = unique_values
             .iter()
-            .map(|record| {
-                Some(
+            .map(|record| match record {
+                None if !is_struct => None,
+                record => Some(
                     record
                         .as_ref()
                         .and_then(|record| value_at_path(record, &leaf.path))
                         .cloned()
                         .unwrap_or_else(|| crate::value::default_value(leaf.dtype)),
-                )
+                ),
             })
             .collect();
         let unique = values_to_series(PlSmallStr::EMPTY, leaf.dtype, values)?;
@@ -1243,6 +1249,37 @@ mod tests {
             let reference = values_to_series("record".into(), &schema, gathered).unwrap();
 
             prop_assert!(optimized.equals_missing(&reference));
+        }
+
+        #[test]
+        fn absent_list_values_gather_as_null(
+            rows in prop::collection::vec(prop::option::of(0usize..3), 0..512)
+        ) {
+            let unique_values = vec![
+                Some(Value::List(vec![Value::UInt32(1), Value::UInt32(2)])),
+                None,
+                Some(Value::List(Vec::new())),
+            ];
+            let schema = SchemaSpec::List {
+                inner: Box::new(SchemaSpec::UInt32),
+            };
+            let optimized = decoded_values_to_series(
+                "values".into(),
+                &unique_values,
+                &rows,
+                &schema,
+            ).unwrap();
+            let gathered = rows
+                .iter()
+                .map(|row| row.and_then(|index| unique_values[index].clone()))
+                .collect();
+            let reference = values_to_series("values".into(), &schema, gathered).unwrap();
+
+            prop_assert!(optimized.equals_missing(&reference));
+            prop_assert_eq!(
+                optimized.null_count(),
+                rows.iter().filter(|row| !matches!(row, Some(0 | 2))).count()
+            );
         }
 
         #[test]
