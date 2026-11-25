@@ -57,6 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Categorical, Enum, Decimal, Float16, and Array input columns now raise
   `MMDB lookup input must have String dtype`, like other non-String columns.
   They previously made the plugin panic with only `the plugin panicked`.
+- Reduced repeated database reads when the databases in one query exceed the
+  cache limit. A lookup now reuses an evicted snapshot while a running
+  evaluation still holds it, and the cache evicts the least recently used
+  snapshot rather than the oldest one. Opening a database no longer blocks
+  lookups against databases that are already cached.
 
 ## [0.4.0] - 2026-11-07
 
