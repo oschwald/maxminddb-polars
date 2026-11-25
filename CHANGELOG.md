@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mapping, such as a dict. A set has no fixed order, so its keys could be read
   in a different order from one run to the next and return different values or
   null, and a dict passed only its keys. Pass a list or tuple instead.
+- With `strict=False`, an IPv6 address looked up in an IPv4-only database now
+  returns null instead of failing the whole query. With `strict=True`, the
+  default, it still raises an error. The documentation now describes both
+  cases.
 
 ## [0.4.0] - 2026-11-07
 

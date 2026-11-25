@@ -97,6 +97,8 @@ Unsupported logical types fail during expression construction.
 | Missing declared List field in a Struct              | empty List                         |
 | Invalid IP, `strict=True`                            | Polars compute error               |
 | Invalid IP, `strict=False`                           | null output                        |
+| IPv6 input on IPv4-only database, `strict=True`      | Polars compute error               |
+| IPv6 input on IPv4-only database, `strict=False`     | null output                        |
 | Unknown database without dtype                       | schema-planning error              |
 | Known field/dtype mismatch                           | schema-planning error              |
 | Path that does not fit a field a known schema lists  | schema-planning error              |
@@ -105,14 +107,17 @@ Unsupported logical types fail during expression construction.
 | Corrupt data or custom dtype mismatch                | Polars compute error               |
 | Decoder or metadata resource limit exceeded          | Polars compute error               |
 
-`strict=False` only converts invalid IP strings to nulls. Database, decode,
+`strict=False` only converts invalid IP strings, and IPv6 addresses looked up
+in an IPv4-only database (`ip_version` 4 in the metadata), to nulls. This
+includes IPv4-mapped IPv6 addresses such as `::ffff:1.1.1.1`. Database, decode,
 resource-limit, and schema errors still raise. Decoder limits also apply to
 structurally valid records and metadata. See [Security testing](security-testing.md).
 
-For `lookup`, a null outer Struct indicates a lookup miss, null input, or an
-invalid IP with `strict=False`. A Struct- or List-valued `lookup_path` also
-returns null when the selected path is absent from a record, so an absent List
-is distinct from a stored empty array.
+For `lookup`, a null outer Struct indicates a lookup miss, null input, or, with
+`strict=False`, an invalid IP or an IPv6 address in an IPv4-only database. A
+Struct- or List-valued `lookup_path` also returns null when the selected path
+is absent from a record, so an absent List is distinct from a stored empty
+array.
 
 Missing Structs apply the table's defaults to their fields recursively.
 The output does not distinguish a missing map from one containing those defaults.

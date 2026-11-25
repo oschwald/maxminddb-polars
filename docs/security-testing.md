@@ -2,8 +2,8 @@
 
 MMDB files and IP strings are untrusted input. Failures to open, search, or
 decode a database become Polars errors. Parser panics must not cross the plugin
-boundary. `strict=False` converts invalid IP strings to nulls but does not
-suppress database or decoder errors. See [API error behavior](api.md#dtypes-and-validity).
+boundary. `strict=False` converts invalid IP strings, and IPv6 addresses in an
+IPv4-only database, to nulls but does not suppress database or decoder errors. See [API error behavior](api.md#dtypes-and-validity).
 
 Python checks arguments and file paths before calling the plugin. Invalid
 arguments can raise `TypeError` or `ValueError`. A missing database raises

@@ -106,9 +106,10 @@ def lookup_path(
     schema does not list, and any field of an unknown schema, requires an
     explicit dtype.
 
-    Invalid IP strings raise a Polars ``ComputeError`` unless ``strict=False``,
-    in which case they also produce null. Database and decoder resource-limit
-    errors still raise regardless of strictness.
+    Invalid IP strings, and IPv6 addresses looked up in an IPv4-only database,
+    raise a Polars ``ComputeError`` unless ``strict=False``, in which case they
+    also produce null. Database and decoder resource-limit errors still raise
+    regardless of strictness.
     """
     if not isinstance(strict, bool):
         raise TypeError(f"strict must be a bool, got {strict!r}")
@@ -143,9 +144,11 @@ def lookup(
     known schema lists must match its dtypes; other fields are decoded with the
     requested dtype, as for an unknown database.
 
-    Null IPs and lookup misses produce null records. Invalid IP strings raise
-    a Polars ``ComputeError`` unless ``strict=False``. Database and decoder
-    resource-limit errors still raise regardless of strictness.
+    Null IPs and lookup misses produce null records. Invalid IP strings, and
+    IPv6 addresses looked up in an IPv4-only database, raise a Polars
+    ``ComputeError`` unless ``strict=False``, in which case they produce null.
+    Database and decoder resource-limit errors still raise regardless of
+    strictness.
     """
     if not isinstance(strict, bool):
         raise TypeError(f"strict must be a bool, got {strict!r}")
